@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="wirdi_ufuq_background">#FF11161D</color>
+    <color name="wirdi_ufuq_surface">#FF182029</color>
+    <color name="wirdi_ufuq_elevated">#FF222C37</color>
+    <color name="wirdi_ufuq_primary">#FF93A9C2</color>
+    <color name="wirdi_ufuq_secondary">#FFB2A0C4</color>
+    <color name="wirdi_ufuq_text_primary">#FFF0EDE7</color>
+    <color name="wirdi_ufuq_text_secondary">#FFB4BBC3</color>
+</resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Minimalist monoline concentric arcs & crescent in soft pearl white -->
+    <path
+        android:fillColor="#26FFFFFF"
+        android:pathData="M54,22 A32,32 0 1,1 53.9,22 Z" />
+    <path
+        android:fillColor="#F6F4F1"
+        android:pathData="M58,33 C46.4,33 37,42.4 37,54 C37,65.6 46.4,75 58,75 C63.0,75 67.6,73.2 71.2,70.3 C63.9,71.8 56.2,67.0 54.6,59.4 C53.0,51.8 57.8,44.1 65.4,42.5 C67.5,42.0 69.5,42.1 71.2,42.6 C67.6,36.6 63.0,33 58,33 Z" />
+    <path
+        android:fillColor="#E9E8FB"
+        android:pathData="M67,46 A3.5,3.5 0 1,1 66.9,46 Z" />
+</vector>
