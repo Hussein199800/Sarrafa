@@ -1,6 +1,6 @@
 /* عامل الخدمة: يحفظ ملفات النظام ليعمل دون إنترنت بعد أول فتح.
    الاستراتيجية: الشبكة أولاً (لتصل التحديثات)، ثم النسخة المحفوظة عند انقطاع الاتصال. */
-const CACHE = "smart-exchange-v1";
+const CACHE = "smart-exchange-v2";
 const FILES = ["./", "index.html", "style.css", "script.js", "engine.js", "xlsx-lite.js", "vendor/decimal.js", "manifest.webmanifest", "icon.svg"];
 self.addEventListener("install", function (e) {
     e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(FILES); }).then(function () { return self.skipWaiting(); }));
@@ -12,7 +12,18 @@ self.addEventListener("activate", function (e) {
 });
 self.addEventListener("fetch", function (e) {
     const url = new URL(e.request.url);
-    if (e.request.method !== "GET" || url.origin !== location.origin) return;
+    if (e.request.method !== "GET") return;
+    /* الخط (IBM Plex Sans Arabic) والأيقونات (Tabler): من الذاكرة أولاً ليعمل الموقع دون إنترنت */
+    if (/fonts\.googleapis\.com|fonts\.gstatic\.com|cdn\.jsdelivr\.net/.test(url.hostname)) {
+        e.respondWith(caches.match(e.request).then(function (hit) {
+            return hit || fetch(e.request).then(function (res) {
+                if (res && (res.ok || res.type === "opaque")) { const copy = res.clone(); caches.open(CACHE).then(function (c) { c.put(e.request, copy); }); }
+                return res;
+            });
+        }));
+        return;
+    }
+    if (url.origin !== location.origin) return;
     e.respondWith(fetch(e.request).then(function (res) {
         if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(function (c) { c.put(e.request, copy); }); }
         return res;

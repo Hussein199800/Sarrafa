@@ -332,7 +332,9 @@ function failMsg(e) {
 function toast(html, kind, ms) {
     const el = document.createElement("div");
     el.className = "toast " + (kind || "");
-    el.innerHTML = html;
+    const icon = { ok: "circle-check", bad: "alert-circle", warn: "alert-triangle" }[kind] || "info-circle";
+    el.innerHTML = '<i class="ti ti-' + icon + ' toast-icon" aria-hidden="true"></i><div>' + html + "</div>";
+    el.addEventListener("click", function () { el.style.display = "none"; });
     $("#toasts").appendChild(el);
     setTimeout(function () { el.remove(); }, ms || 4500);
 }
@@ -508,8 +510,10 @@ function go(sec) {
     if (!SECTIONS[sec]) sec = "dashboard";
     ui.section = sec;
     lsSet("sx_section", sec);
-    $$("#sidebar button").forEach(function (b) { b.classList.toggle("active", b.dataset.sec === sec); });
-    $("#app").classList.remove("nav-open");
+    $$("#sidebar [data-sec]").forEach(function (b) { b.classList.toggle("active", b.dataset.sec === sec); });
+    document.body.classList.remove("nav-open");
+    const nb = $('#sidebar [data-sec="' + sec + '"] b');
+    if (nb) $("#mobileSectionName").textContent = nb.textContent;
     render();
     window.scrollTo(0, 0);
 }
@@ -535,13 +539,18 @@ function renderSoft() {
     render();
 }
 function renderTop() {
-    $("#dayBadge").textContent = "اليوم المحاسبي: " + fmtDay(openDay());
+    $("#dayBadge span").textContent = "اليوم المحاسبي: " + fmtDay(openDay());
     $("#userBadge").textContent = me.name || me.username;
-    $("#userBadge").title = ROLES[me.role] || me.role;
+    $("#roleBadge").textContent = ROLES[me.role] || me.role;
     renderSyncBadge();
 }
+const SECTION_ICONS = {
+    dashboard: "layout-dashboard", exchange: "arrows-exchange", rates: "chart-candle", cashbox: "cash-register", log: "list-details",
+    pnl: "trending-up", close: "lock", register: "notebook", withdraw: "moneybag", count: "clipboard-check", reports: "report-analytics", settings: "settings"
+};
 function pageHead(title, sub, actions) {
-    return '<div class="page-head"><div><h2>' + esc(title) + "</h2>" + (sub ? "<p>" + sub + "</p>" : "") + "</div>" +
+    return '<div class="page-title"><span class="page-icon"><i class="ti ti-' + (SECTION_ICONS[ui.section] || "coins") + '"></i></span>' +
+        '<div class="page-text"><h2>' + esc(title) + "</h2>" + (sub ? "<p>" + sub + "</p>" : "") + "</div>" +
         (actions ? '<div class="row">' + actions + "</div>" : "") + "</div>";
 }
 function curOptions(selected, onlyEnabled) {
@@ -762,7 +771,7 @@ function barChart(items, opts) {
         const inner = bw * 0.7 / series.length;
         series.forEach(function (s, j) {
             const v = it[s.key] || 0;
-            const color = s.color || (v >= 0 ? "var(--profit)" : "var(--loss)");
+            const color = s.color || (v >= 0 ? "var(--success)" : "var(--danger)");
             const top = Math.min(y(v), y(0)), h = Math.max(Math.abs(y(v) - y(0)), v ? 1 : 0);
             svg += '<rect x="' + (x0 + bw * 0.15 + j * inner).toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + inner.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="2" fill="' + color + '"><title>' + esc(it.label + ": " + (opts.fmt ? opts.fmt(v) : v)) + "</title></rect>";
         });
@@ -809,8 +818,8 @@ function renderDashboard(main) {
         '<h3>أرباح اليوم</h3><div class="grid g4" style="margin-bottom:16px">' +
         '<div class="kpi profit"><div class="label">أرباح اليوم</div><div class="value pos">' + money(a.profit, undefined, { noColor: true }) + "</div></div>" +
         '<div class="kpi loss"><div class="label">خسائر اليوم</div><div class="value neg">' + money(a.loss, undefined, { noColor: true }) + "</div></div>" +
-        '<div class="kpi ' + (a.net.lt(0) ? "loss" : "profit") + '"><div class="label">صافي اليوم بالدولار</div><div class="value ' + cls(a.net) + '">' + fmtUSD(a.net) + "</div></div>" +
-        '<div class="kpi ' + (a.net.lt(0) ? "loss" : "profit") + '"><div class="label">صافي اليوم بالليرة السورية</div><div class="value ' + cls(a.net) + '">' + (dispRate() ? fmtCur(a.net.times(dispRate()), S.display) : "—") + "</div></div></div>" +
+        '<div class="kpi money"><div class="label">صافي اليوم بالدولار</div><div class="value ' + cls(a.net) + '">' + fmtUSD(a.net) + "</div></div>" +
+        '<div class="kpi money"><div class="label">صافي اليوم بالليرة السورية</div><div class="value ' + cls(a.net) + '">' + (dispRate() ? fmtCur(a.net.times(dispRate()), S.display) : "—") + "</div></div></div>" +
         '<h3>إحصائيات العمليات</h3><div class="grid g4" style="margin-bottom:16px">' +
         '<div class="kpi info"><div class="label">عدد عمليات اليوم</div><div class="value">' + a.count + "</div></div>" +
         '<div class="kpi info"><div class="label">إجمالي عدد العمليات</div><div class="value">' + all.count + "</div></div>" +
@@ -823,9 +832,9 @@ function renderDashboard(main) {
         '<div class="grid g2">' +
         '<div class="card"><h3>الأرباح اليومية (آخر 30 يوماً)</h3>' + barChart(days30, { fmt: fmtUsd, title: "الأرباح اليومية" }) + "</div>" +
         '<div class="card"><h3>الأرباح الشهرية (آخر 12 شهراً)</h3>' + barChart(months, { fmt: fmtUsd, title: "الأرباح الشهرية" }) + "</div>" +
-        '<div class="card"><h3>مقارنة الأرباح والخسائر (آخر 14 يوماً)</h3>' + barChart(days30.slice(0, 14), { fmt: fmtUsd, title: "الأرباح والخسائر", series: [{ key: "profit", color: "var(--profit)" }, { key: "loss", color: "var(--loss)" }] }) +
-        '<div class="legend"><span><i style="background:var(--profit)"></i>أرباح</span><span><i style="background:var(--loss)"></i>خسائر</span></div></div>' +
-        '<div class="card"><h3>عدد العمليات حسب العملات</h3>' + barChart(curCounts, { title: "العمليات حسب العملات", series: [{ key: "value", color: "var(--info)" }] }) + "</div></div>";
+        '<div class="card"><h3>مقارنة الأرباح والخسائر (آخر 14 يوماً)</h3>' + barChart(days30.slice(0, 14), { fmt: fmtUsd, title: "الأرباح والخسائر", series: [{ key: "profit", color: "var(--success)" }, { key: "loss", color: "var(--danger)" }] }) +
+        '<div class="legend"><span><i style="background:var(--success)"></i>أرباح</span><span><i style="background:var(--danger)"></i>خسائر</span></div></div>' +
+        '<div class="card"><h3>عدد العمليات حسب العملات</h3>' + barChart(curCounts, { title: "العمليات حسب العملات", series: [{ key: "value", color: "var(--plum-300)" }] }) + "</div></div>";
     main.onclick = function (e) { const b = e.target.closest("[data-go]"); if (b) go(b.dataset.go); };
 }
 
@@ -985,7 +994,7 @@ function renderExchange(main) {
         (!can("exchange") ? '<div class="alert info">حسابك للعرض فقط.</div>' : "") +
         '<div class="ex-layout"><div class="card"><div class="grid g3 meta3" style="margin-bottom:12px">' +
         '<div class="field"><span>رقم العملية</span><input value="' + esc(no) + '" readonly class="num-in"></div>' +
-        '<div class="field"><span>تاريخ العملية (اليوم المحاسبي)</span><input value="' + esc(fmtDay(day)) + '" readonly class="num-in"></div>' +
+        '<div class="field"><span>التاريخ</span><input value="' + esc(fmtDay(day)) + '" readonly class="num-in"></div>' +
         '<div class="field"><span>الوقت</span><input id="exClock" value="' + esc(editing ? fmtTime(orig.at) : fmtTime(nowISO())) + '" readonly class="num-in"></div></div>' +
         '<div class="ex-cur">' +
         '<label class="field"><span>العملة التي يستلمها الصراف</span><select id="exInCur">' + curOptions(f.inCur) + "</select></label>" +
@@ -2110,7 +2119,7 @@ function renderSettings(main) {
             '<div class="table-wrap" style="margin-top:10px"><table><thead><tr><th>العملة</th><th>الرصيد الافتتاحي</th><th>التكلفة</th></tr></thead><tbody>' +
             Object.keys(opening.balances || {}).map(function (k) { const b = opening.balances[k]; return "<tr><td>" + esc(curName(k)) + '</td><td class="num">' + fmtCur(b.qty, k) + "</td><td>" + esc(fmtCostRate(b.unitCost, k)) + "</td></tr>"; }).join("") + "</tbody></table></div></div>" : "") +
 
-        (isMgr ? '<div class="card" style="border-color:var(--loss)"><h3 class="neg">منطقة الخطر</h3><p class="muted small">حذف كل البيانات من هذا الجهاز (لا يحذف النسخة على Firebase). نزّل نسخة احتياطية أولاً.</p><button class="btn danger" data-act="wipe">حذف كل البيانات من هذا الجهاز</button></div>' : "");
+        (isMgr ? '<div class="card" style="border-color:var(--danger)"><h3 class="neg">منطقة الخطر</h3><p class="muted small">حذف كل البيانات من هذا الجهاز (لا يحذف النسخة على Firebase). نزّل نسخة احتياطية أولاً.</p><button class="btn danger" data-act="wipe">حذف كل البيانات من هذا الجهاز</button></div>' : "");
 
     renderSyncPanel();
     $$("[data-sc]", main).forEach(function (el) {
@@ -2577,7 +2586,9 @@ function renderSyncBadge() {
         else if (fb.status === "connecting") { cls2 = "badge info"; txt = "جارٍ الاتصال…"; }
         else { cls2 = "badge bad"; txt = navigator.onLine === false ? "دون اتصال — يُحفظ محلياً" : "خطأ في المزامنة"; }
     }
-    el.className = cls2; el.textContent = txt; el.title = fb.error || "";
+    el.className = cls2.replace("badge", "side-pill");
+    $("span", el).textContent = txt;
+    el.title = fb.error || "";
 }
 function renderSyncPanel() {
     const box = $("#syncPanel");
@@ -2616,6 +2627,27 @@ function enterApp() {
     if (me.mustChange && !asked) setTimeout(function () { changePassword(me.id); }, 400);
     autoCloseTick();
 }
+/* الشعار الموحّد: مربع حبر وسهما التبديل وعملة ذهبية «تمّ» */
+function sealSVG(extraClass) {
+    return '<svg class="seal brand-mark' + (extraClass ? " " + extraClass : "") + '" viewBox="0 0 64 64" aria-hidden="true">' +
+        '<rect class="bm-tile" x="2" y="2" width="60" height="60" rx="17"/>' +
+        '<g class="bm-arrows" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M15 25 H43"/><path d="M36 18 L43 25 L36 32"/>' +
+        '<path d="M43 38 H21"/><path d="M28 31 L21 38 L28 45"/></g>' +
+        '<circle class="bm-badge" cx="47" cy="46.5" r="10.5"/>' +
+        '<path class="bm-check" d="M42.3 46.6 L45.6 49.9 L51.8 43.4" fill="none" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>' +
+        "</svg>";
+}
+function anchorSeals() {
+    $$("svg.seal[data-seal]").forEach(function (old) {
+        const extra = Array.from(old.classList).filter(function (c) { return c !== "seal"; }).join(" ");
+        const holder = document.createElement("div");
+        holder.innerHTML = sealSVG(extra);
+        old.replaceWith(holder.firstChild);
+    });
+}
+anchorSeals();
+
 async function init() {
     if (!E || !window.Decimal) { $("#bootMsg").textContent = "تعذر تحميل ملفات النظام (engine.js / decimal.js)."; return; }
     try {
@@ -2639,9 +2671,11 @@ async function init() {
     });
     $("#logoutBtn").addEventListener("click", logout);
     $("#themeBtn").addEventListener("click", toggleTheme);
-    $("#menuBtn").addEventListener("click", function () { $("#app").classList.toggle("nav-open"); });
-    $("#navShade").addEventListener("click", function () { $("#app").classList.remove("nav-open"); });
-    $$("#sidebar button").forEach(function (b) { b.addEventListener("click", function () { go(b.dataset.sec); }); });
+    $("#themeBtnMobile").addEventListener("click", toggleTheme);
+    $("#menuBtn").addEventListener("click", function () { document.body.classList.add("nav-open"); });
+    $("#menuClose").addEventListener("click", function () { document.body.classList.remove("nav-open"); });
+    $("#navShade").addEventListener("click", function () { document.body.classList.remove("nav-open"); });
+    $$("#sidebar [data-sec]").forEach(function (b) { b.addEventListener("click", function () { go(b.dataset.sec); }); });
 
     if (channel) channel.onmessage = async function (ev) {
         if (!ev.data || ev.data.t !== "changed") return;

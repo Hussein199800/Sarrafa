@@ -317,7 +317,7 @@ await tab2.waitForFunction(function () { return byType("cash").length === 2; }, 
 check("تبويب آخر يتحدث تلقائياً", true);
 
 /* ---------- الوضع الليلي وشاشة الكمبيوتر ---------- */
-await pa.click("#themeBtn");
+await pa.click("#themeBtnMobile");
 check("الوضع الليلي", (await pa.getAttribute("html", "data-theme")) === "dark");
 await pa.setViewportSize({ width: 1366, height: 900 });
 await nav(pa, "dashboard");
