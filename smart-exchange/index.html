@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>نظام الصرافة الذكي</title>
+    <meta name="description" content="نظام لإدارة عمليات الصرافة والأرباح وأرصدة الصندوق">
+    <meta name="theme-color" content="#1f3b57">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <script>
+        /* ضبط الوضع الليلي/النهاري قبل الرسم */
+        (function () {
+            var t = null;
+            try { t = localStorage.getItem("sx_theme"); } catch (e) {}
+            if (!t) t = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+            document.documentElement.setAttribute("data-theme", t);
+        })();
+    </script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- شاشة التحميل / الخطأ -->
+<div id="boot" class="boot">
+    <div class="boot-card">
+        <div class="logo">⇄</div>
+        <h1>نظام الصرافة الذكي</h1>
+        <p id="bootMsg">جارٍ تحميل البيانات…</p>
+    </div>
+</div>
+
+<!-- تسجيل الدخول -->
+<div id="loginScreen" class="login hidden">
+    <form id="loginForm" class="login-card" autocomplete="on">
+        <div class="logo">⇄</div>
+        <h1>نظام الصرافة الذكي</h1>
+        <p class="muted">Smart Exchange Management System</p>
+        <label>اسم المستخدم
+            <input id="loginUser" name="username" autocomplete="username" required>
+        </label>
+        <label>كلمة المرور
+            <input id="loginPass" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <p id="loginError" class="error-text"></p>
+        <button type="submit" class="btn primary big">دخول</button>
+        <p class="muted small">يمكن الدخول بالحساب نفسه من أكثر من جوال في الوقت نفسه؛ تتزامن البيانات بين الأجهزة عند تفعيل المزامنة من الإعدادات.</p>
+    </form>
+</div>
+
+<!-- التطبيق -->
+<div id="app" class="app hidden">
+    <header class="topbar">
+        <button id="menuBtn" class="icon-btn only-mobile" aria-label="القائمة">☰</button>
+        <div class="brand"><span class="logo sm">⇄</span><span>نظام الصرافة الذكي</span></div>
+        <div class="top-info">
+            <span id="dayBadge" class="badge info" title="اليوم المحاسبي المفتوح"></span>
+            <span id="syncBadge" class="badge" title="حالة المزامنة"></span>
+        </div>
+        <div class="top-actions">
+            <button id="themeBtn" class="icon-btn" aria-label="الوضع الليلي/النهاري" title="الوضع الليلي/النهاري">◐</button>
+            <span id="userBadge" class="user-badge"></span>
+            <button id="logoutBtn" class="btn ghost sm">خروج</button>
+        </div>
+    </header>
+
+    <nav id="sidebar" class="sidebar" aria-label="القائمة الرئيسية">
+        <button data-sec="dashboard"><i>▦</i>لوحة التحكم</button>
+        <button data-sec="exchange"><i>⇄</i>عملية صرافة جديدة</button>
+        <button data-sec="rates"><i>％</i>أسعار الصرف</button>
+        <button data-sec="cashbox"><i>▣</i>إدارة الصندوق</button>
+        <button data-sec="log"><i>≣</i>سجل العمليات</button>
+        <button data-sec="pnl"><i>±</i>الأرباح والخسائر</button>
+        <button data-sec="close"><i>⏻</i>إقفال اليوم</button>
+        <button data-sec="register"><i>▤</i>سجل الأرباح المرحّلة</button>
+        <button data-sec="withdraw"><i>↧</i>سحب الأرباح</button>
+        <button data-sec="count"><i>✓</i>جرد ومطابقة الصندوق</button>
+        <button data-sec="reports"><i>⎙</i>التقارير</button>
+        <button data-sec="settings"><i>⚙</i>الإعدادات</button>
+    </nav>
+    <div id="navShade" class="nav-shade"></div>
+
+    <main id="main" class="main" tabindex="-1"></main>
+</div>
+
+<!-- النوافذ والرسائل -->
+<div id="modalRoot"></div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<!-- منطقة الطباعة -->
+<div id="printArea" class="print-area"></div>
+
+<script src="vendor/decimal.js"></script>
+<script src="engine.js"></script>
+<script src="xlsx-lite.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
