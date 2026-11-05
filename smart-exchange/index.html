@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+
+    <!-- الوضع النهاري/الليلي قبل رسم الصفحة (بلا وميض): اختيار المستخدم، وإلا إعداد الجهاز -->
+    <script>
+        (function () {
+            var t = null;
+            try { t = localStorage.getItem("sx_theme"); } catch (e) {}
+            if (t !== "dark" && t !== "light") {
+                t = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+            }
+            document.documentElement.setAttribute("data-theme", t);
+        })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+    <title>نظام الصرافة الذكي</title>
+    <meta name="description" content="نظام لإدارة عمليات الصرافة والأرباح وأرصدة الصندوق">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="theme-color" content="#22193a">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <a class="skip-link" href="#main">تخطٍّ إلى المحتوى</a>
+
+    <!-- ================= التحميل ================= -->
+
+    <div id="boot" class="login-page">
+        <div class="login-shell">
+            <div class="login-art">
+                <div class="login-seal" aria-hidden="true"><svg class="seal seal-xl" data-seal viewBox="0 0 64 64"></svg></div>
+                <h1>نظام الصرافة الذكي</h1>
+                <p class="login-subtitle" id="bootMsg">جارٍ تحميل البيانات…</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= تسجيل الدخول ================= -->
+
+    <section id="loginScreen" class="login-page hidden">
+
+        <div class="login-shell">
+
+            <div class="login-art">
+                <div class="login-seal" aria-hidden="true"><svg class="seal seal-xl" data-seal viewBox="0 0 64 64"></svg></div>
+                <p class="login-art-org">إدارة الصرافة والصندوق والأرباح</p>
+                <h1>نظام الصرافة الذكي</h1>
+                <p class="login-subtitle">سجّل الدخول بحسابك للمتابعة</p>
+            </div>
+
+            <form id="loginForm" class="login-box" autocomplete="on">
+                <div class="input-group">
+                    <label for="loginUser"><i class="ti ti-user"></i>اسم المستخدم</label>
+                    <input id="loginUser" name="username" autocomplete="username" required>
+                </div>
+                <div class="input-group">
+                    <label for="loginPass"><i class="ti ti-lock"></i>كلمة المرور</label>
+                    <input id="loginPass" name="password" type="password" autocomplete="current-password" required>
+                </div>
+                <button type="submit" class="btn primary big"><i class="ti ti-login-2"></i>دخول</button>
+                <p id="loginError" class="error-message"></p>
+                <p class="login-note">يمكن الدخول بالحساب نفسه من أكثر من جوال في الوقت نفسه، وتتزامن البيانات بين الأجهزة عبر Firebase.</p>
+            </form>
+
+        </div>
+
+    </section>
+
+    <!-- ================= التطبيق ================= -->
+
+    <section id="app" class="app-page hidden">
+
+        <!-- الشريط العلوي: الشعار والحالة، وزر الرجوع داخل صفحات «المزيد» -->
+        <header class="topbar">
+            <button type="button" class="top-btn hidden" id="backBtn" aria-label="رجوع إلى المزيد"><i class="ti ti-arrow-right"></i></button>
+            <div class="top-brand">
+                <svg class="seal" data-seal viewBox="0 0 64 64" aria-hidden="true"></svg>
+                <div class="top-text">
+                    <b id="topTitle">نظام الصرافة الذكي</b>
+                    <span id="dayBadge"><span></span></span>
+                </div>
+            </div>
+            <span id="syncBadge" class="sync-pill" title=""><i class="dot"></i><span></span></span>
+            <button type="button" class="top-btn" id="themeBtn" aria-label="تبديل الوضع النهاري والليلي">
+                <i class="ti ti-moon theme-when-light"></i><i class="ti ti-sun theme-when-dark"></i>
+            </button>
+        </header>
+
+        <main class="app-main">
+            <div class="main-content" id="main" tabindex="-1"></div>
+        </main>
+
+        <!-- التبويبات: الاستخدام اليومي، وكل الأدوات الأخرى داخل «المزيد» -->
+        <nav class="tabbar" id="tabbar" aria-label="القائمة الرئيسية">
+            <button type="button" data-sec="dashboard"><i class="ti ti-layout-dashboard"></i><span>الرئيسية</span></button>
+            <button type="button" data-sec="exchange"><i class="ti ti-arrows-exchange"></i><span>صرافة</span></button>
+            <button type="button" data-sec="log"><i class="ti ti-list-details"></i><span>السجل</span></button>
+            <button type="button" data-sec="cashbox"><i class="ti ti-cash-register"></i><span>الصندوق</span></button>
+            <button type="button" data-sec="more"><i class="ti ti-dots-circle-horizontal"></i><span>المزيد</span><i class="tab-badge hidden" id="moreBadge"></i></button>
+        </nav>
+
+    </section>
+
+    <!-- النوافذ والرسائل -->
+    <div id="modalRoot"></div>
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <!-- منطقة الطباعة -->
+    <div id="printArea" class="print-area"></div>
+
+    <script src="vendor/decimal.js"></script>
+    <script src="engine.js"></script>
+    <script src="xlsx-lite.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>
