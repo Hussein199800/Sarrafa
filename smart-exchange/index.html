@@ -82,81 +82,34 @@
 
     <section id="app" class="app-page hidden">
 
-        <!-- شريط الهاتف -->
-        <header class="mobile-bar">
-            <button type="button" class="menu-toggle" id="menuBtn" aria-label="فتح القائمة"><i class="ti ti-menu-2"></i></button>
-            <div class="mobile-bar-title">
-                <strong>نظام الصرافة الذكي</strong>
-                <span id="mobileSectionName">لوحة التحكم</span>
+        <!-- الشريط العلوي: الشعار والحالة، وزر الرجوع داخل صفحات «المزيد» -->
+        <header class="topbar">
+            <button type="button" class="top-btn hidden" id="backBtn" aria-label="رجوع إلى المزيد"><i class="ti ti-arrow-right"></i></button>
+            <div class="top-brand">
+                <svg class="seal" data-seal viewBox="0 0 64 64" aria-hidden="true"></svg>
+                <div class="top-text">
+                    <b id="topTitle">نظام الصرافة الذكي</b>
+                    <span id="dayBadge"><span></span></span>
+                </div>
             </div>
-            <button type="button" class="menu-toggle mobile-theme" id="themeBtnMobile" aria-label="تبديل الوضع النهاري والليلي">
+            <span id="syncBadge" class="sync-pill" title=""><i class="dot"></i><span></span></span>
+            <button type="button" class="top-btn" id="themeBtn" aria-label="تبديل الوضع النهاري والليلي">
                 <i class="ti ti-moon theme-when-light"></i><i class="ti ti-sun theme-when-dark"></i>
             </button>
         </header>
 
-        <div class="nav-overlay" id="navShade"></div>
-
-        <!-- القائمة الجانبية -->
-        <aside class="sidebar" id="sidebar">
-
-            <div class="sidebar-head">
-                <div class="brand">
-                    <svg class="seal" data-seal viewBox="0 0 64 64" aria-hidden="true"></svg>
-                    <div>
-                        <p class="brand-org">إدارة الصرافة والأرباح</p>
-                        <h1>نظام الصرافة الذكي</h1>
-                    </div>
-                </div>
-                <button type="button" class="menu-close" id="menuClose" aria-label="إغلاق القائمة"><i class="ti ti-x"></i></button>
-            </div>
-
-            <!-- اليوم المحاسبي وحالة المزامنة -->
-            <div class="side-status">
-                <span id="dayBadge" class="side-pill"><i class="ti ti-calendar-event"></i><span></span></span>
-                <span id="syncBadge" class="side-pill"><i class="ti ti-cloud"></i><span></span></span>
-            </div>
-
-            <!-- التبديل بين الوضع النهاري والليلي -->
-            <button type="button" class="theme-toggle" id="themeBtn" aria-label="تبديل الوضع النهاري والليلي">
-                <span class="theme-icon" aria-hidden="true"><i class="ti ti-sun"></i><i class="ti ti-moon"></i></span>
-                <span class="theme-label">الوضع الليلي</span>
-                <span class="theme-switch" aria-hidden="true"></span>
-            </button>
-
-            <!-- بطاقة المستخدم -->
-            <div class="profile-card">
-                <div class="profile-row">
-                    <span class="profile-icon"><i class="ti ti-user-shield"></i></span>
-                    <div><small>المستخدم</small><strong id="userBadge">-</strong></div>
-                </div>
-                <div class="profile-row">
-                    <span class="profile-icon"><i class="ti ti-id-badge-2"></i></span>
-                    <div><small>الصلاحية</small><strong id="roleBadge">-</strong></div>
-                </div>
-            </div>
-
-            <nav class="navigation" aria-label="القائمة الرئيسية">
-                <button type="button" class="tab-btn" data-sec="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span class="nav-text"><b>لوحة التحكم</b><small>الأرصدة وأرباح اليوم</small></span></button>
-                <button type="button" class="tab-btn" data-sec="exchange"><i class="ti ti-arrows-exchange nav-icon"></i><span class="nav-text"><b>عملية صرافة جديدة</b><small>شراء وبيع العملات</small></span></button>
-                <button type="button" class="tab-btn" data-sec="rates"><i class="ti ti-chart-candle nav-icon"></i><span class="nav-text"><b>أسعار الصرف</b><small>أسعار الشراء والبيع</small></span></button>
-                <button type="button" class="tab-btn" data-sec="cashbox"><i class="ti ti-cash-register nav-icon"></i><span class="nav-text"><b>إدارة الصندوق</b><small>إضافة وسحب وتسوية</small></span></button>
-                <button type="button" class="tab-btn" data-sec="log"><i class="ti ti-list-details nav-icon"></i><span class="nav-text"><b>سجل العمليات</b><small>بحث وتعديل وحذف</small></span></button>
-                <button type="button" class="tab-btn" data-sec="pnl"><i class="ti ti-trending-up nav-icon"></i><span class="nav-text"><b>الأرباح والخسائر</b><small>يومي، شهري، سنوي</small></span></button>
-                <button type="button" class="tab-btn" data-sec="close"><i class="ti ti-lock nav-icon"></i><span class="nav-text"><b>إقفال اليوم</b><small>ترحيل الأرباح</small></span></button>
-                <button type="button" class="tab-btn" data-sec="register"><i class="ti ti-notebook nav-icon"></i><span class="nav-text"><b>سجل الأرباح المرحّلة</b><small>نتائج الأيام المقفلة</small></span></button>
-                <button type="button" class="tab-btn" data-sec="withdraw"><i class="ti ti-moneybag nav-icon"></i><span class="nav-text"><b>سحب الأرباح</b><small>السحوبات والمتبقي</small></span></button>
-                <button type="button" class="tab-btn" data-sec="count"><i class="ti ti-clipboard-check nav-icon"></i><span class="nav-text"><b>جرد ومطابقة الصندوق</b><small>اختياري</small></span></button>
-                <button type="button" class="tab-btn" data-sec="reports"><i class="ti ti-report-analytics nav-icon"></i><span class="nav-text"><b>التقارير</b><small>طباعة و Excel</small></span></button>
-                <button type="button" class="tab-btn" data-sec="settings"><i class="ti ti-settings nav-icon"></i><span class="nav-text"><b>الإعدادات</b><small>العملات والمستخدمون والمزامنة</small></span></button>
-            </nav>
-
-            <button type="button" class="logout-btn" id="logoutBtn"><i class="ti ti-logout nav-icon"></i><span class="nav-text"><b>تسجيل الخروج</b></span></button>
-
-        </aside>
-
         <main class="app-main">
             <div class="main-content" id="main" tabindex="-1"></div>
         </main>
+
+        <!-- التبويبات: الاستخدام اليومي، وكل الأدوات الأخرى داخل «المزيد» -->
+        <nav class="tabbar" id="tabbar" aria-label="القائمة الرئيسية">
+            <button type="button" data-sec="dashboard"><i class="ti ti-layout-dashboard"></i><span>الرئيسية</span></button>
+            <button type="button" data-sec="exchange"><i class="ti ti-arrows-exchange"></i><span>صرافة</span></button>
+            <button type="button" data-sec="log"><i class="ti ti-list-details"></i><span>السجل</span></button>
+            <button type="button" data-sec="cashbox"><i class="ti ti-cash-register"></i><span>الصندوق</span></button>
+            <button type="button" data-sec="more"><i class="ti ti-dots-circle-horizontal"></i><span>المزيد</span><i class="tab-badge hidden" id="moreBadge"></i></button>
+        </nav>
 
     </section>
 

@@ -82,9 +82,10 @@ async function modalOk(page) {
     await page.click('.modal [data-modal="ok"]');
 }
 async function nav(page, sec) {
-    const menu = await page.$("#menuBtn");
-    if (menu && await menu.isVisible()) await menu.click();
-    await page.click('#sidebar [data-sec="' + sec + '"]');
+    /* تبويب في الشريط السفلي، أو بطاقة داخل «المزيد» */
+    if (await page.$('#tabbar [data-sec="' + sec + '"]')) { await page.click('#tabbar [data-sec="' + sec + '"]'); return; }
+    await page.click('#tabbar [data-sec="more"]');
+    await page.click('#main .lcard[data-sec="' + sec + '"]');
 }
 async function state(page) {
     return page.evaluate(function () {
@@ -317,7 +318,7 @@ await tab2.waitForFunction(function () { return byType("cash").length === 2; }, 
 check("تبويب آخر يتحدث تلقائياً", true);
 
 /* ---------- الوضع الليلي وشاشة الكمبيوتر ---------- */
-await pa.click("#themeBtnMobile");
+await pa.click("#themeBtn");
 check("الوضع الليلي", (await pa.getAttribute("html", "data-theme")) === "dark");
 await pa.setViewportSize({ width: 1366, height: 900 });
 await nav(pa, "dashboard");
@@ -325,20 +326,20 @@ const overflow = await pa.evaluate(function () { return document.documentElement
 check("لا تمرير أفقي على الكمبيوتر", !overflow);
 await pa.setViewportSize({ width: 390, height: 844 });
 const wide = [];
-for (const sec of ["dashboard", "exchange", "rates", "cashbox", "log", "pnl", "close", "register", "withdraw", "count", "reports", "settings"]) {
+for (const sec of ["dashboard", "exchange", "rates", "cashbox", "log", "pnl", "close", "register", "withdraw", "count", "reports", "settings", "more"]) {
     await nav(pa, sec);
     await pa.waitForTimeout(60);
     if (await pa.evaluate(function () { return document.documentElement.scrollWidth > window.innerWidth + 1; })) wide.push(sec);
 }
 check("لا تمرير أفقي على الجوال في كل الأقسام", !wide.length, wide.join(","));
 if (process.env.SHOTS) {
-    for (const sec of ["dashboard", "exchange", "log", "close", "register", "count", "settings"]) {
+    for (const sec of ["dashboard", "exchange", "log", "more", "close", "register", "count", "settings"]) {
         await nav(pa, sec);
         await pa.waitForTimeout(150);
         await pa.screenshot({ path: process.env.SHOTS + "/m-" + sec + ".png", fullPage: true });
     }
     await pa.setViewportSize({ width: 1366, height: 900 });
-    for (const sec of ["dashboard", "exchange", "reports"]) {
+    for (const sec of ["dashboard", "exchange", "more", "reports"]) {
         await nav(pa, sec);
         await pa.waitForTimeout(150);
         await pa.screenshot({ path: process.env.SHOTS + "/d-" + sec + ".png", fullPage: true });

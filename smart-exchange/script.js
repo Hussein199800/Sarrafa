@@ -504,16 +504,18 @@ async function autoCloseTick() {
 const SECTIONS = {
     dashboard: renderDashboard, exchange: renderExchange, rates: renderRates, cashbox: renderCashbox,
     log: renderLog, pnl: renderPnl, close: renderClose, register: renderRegister, withdraw: renderWithdraw,
-    count: renderCount, reports: renderReports, settings: renderSettings
+    count: renderCount, reports: renderReports, settings: renderSettings, more: renderMore
 };
 function go(sec) {
     if (!SECTIONS[sec]) sec = "dashboard";
     ui.section = sec;
     lsSet("sx_section", sec);
-    $$("#sidebar [data-sec]").forEach(function (b) { b.classList.toggle("active", b.dataset.sec === sec); });
-    document.body.classList.remove("nav-open");
-    const nb = $('#sidebar [data-sec="' + sec + '"] b');
-    if (nb) $("#mobileSectionName").textContent = nb.textContent;
+    const tab = TAB_OF[sec] || "more";
+    $$("#tabbar [data-sec]").forEach(function (b) { b.classList.toggle("on", b.dataset.sec === tab); });
+    /* صفحة فرعية من «المزيد»: زر رجوع واسم الصفحة في الشريط العلوي */
+    const sub = tab === "more" && sec !== "more";
+    $("#backBtn").classList.toggle("hidden", !sub);
+    $("#topTitle").textContent = sub ? SECTION_NAMES[sec] : "نظام الصرافة الذكي";
     render();
     window.scrollTo(0, 0);
 }
@@ -521,7 +523,7 @@ function render() {
     if (!me) return;
     renderTop();
     const main = $("#main");
-    if (!hasOpening() && ui.section !== "settings") { renderSetup(main); return; }
+    if (!hasOpening() && ui.section !== "settings" && ui.section !== "more") { renderSetup(main); return; }
     try { SECTIONS[ui.section](main); }
     catch (e) { console.error(e); main.innerHTML = '<div class="alert bad">تعذر عرض هذا القسم: ' + esc(e.message) + "</div>"; }
 }
@@ -539,14 +541,21 @@ function renderSoft() {
     render();
 }
 function renderTop() {
-    $("#dayBadge span").textContent = "اليوم المحاسبي: " + fmtDay(openDay());
-    $("#userBadge").textContent = me.name || me.username;
-    $("#roleBadge").textContent = ROLES[me.role] || me.role;
+    $("#dayBadge span").textContent = "اليوم المحاسبي " + fmtDay(openDay()) + " · " + (me.name || me.username);
+    const alerts = moreAlerts();
+    $("#moreBadge").classList.toggle("hidden", !alerts);
+    $("#moreBadge").textContent = alerts ? String(alerts) : "";
     renderSyncBadge();
 }
+const TAB_OF = { dashboard: "dashboard", exchange: "exchange", log: "log", cashbox: "cashbox", more: "more" };
+const SECTION_NAMES = {
+    dashboard: "لوحة التحكم", exchange: "عملية صرافة جديدة", rates: "أسعار الصرف", cashbox: "إدارة الصندوق", log: "سجل العمليات",
+    pnl: "الأرباح والخسائر", close: "إقفال اليوم", register: "سجل الأرباح المرحّلة", withdraw: "سحب الأرباح", count: "جرد ومطابقة الصندوق",
+    reports: "التقارير", settings: "الإعدادات", more: "المزيد"
+};
 const SECTION_ICONS = {
     dashboard: "layout-dashboard", exchange: "arrows-exchange", rates: "chart-candle", cashbox: "cash-register", log: "list-details",
-    pnl: "trending-up", close: "lock", register: "notebook", withdraw: "moneybag", count: "clipboard-check", reports: "report-analytics", settings: "settings"
+    pnl: "trending-up", close: "lock", register: "notebook", withdraw: "moneybag", count: "clipboard-check", reports: "report-analytics", settings: "settings", more: "dots-circle-horizontal"
 };
 function pageHead(title, sub, actions) {
     return '<div class="page-title"><span class="page-icon"><i class="ti ti-' + (SECTION_ICONS[ui.section] || "coins") + '"></i></span>' +
@@ -836,6 +845,72 @@ function renderDashboard(main) {
         '<div class="legend"><span><i style="background:var(--success)"></i>أرباح</span><span><i style="background:var(--danger)"></i>خسائر</span></div></div>' +
         '<div class="card"><h3>عدد العمليات حسب العملات</h3>' + barChart(curCounts, { title: "العمليات حسب العملات", series: [{ key: "value", color: "var(--plum-300)" }] }) + "</div></div>";
     main.onclick = function (e) { const b = e.target.closest("[data-go]"); if (b) go(b.dataset.go); };
+}
+
+/* =========================================================
+   صفحة «المزيد» (بأسلوب تطبيق «طاقتي»)
+   بطاقات قائمة ملونة تفتح بقية الأقسام، وبطاقة المستخدم في الأعلى.
+   ========================================================= */
+/* عدد ما يحتاج انتباهاً داخل «المزيد» (يظهر شارةً على التبويب) */
+function moreAlerts() {
+    if (!ST || !S) return 0;
+    let n = 0;
+    if (staleCloses().length) n++;
+    if (byType("close").some(function (c) { return c.status === "reopened"; })) n++;
+    if (unclosedDays(E.addDays(clockDay(), -1)).length) n++;
+    if (syncMeta.enabled && fb.error) n++;
+    return n;
+}
+function listCards(items) {
+    return '<div class="lcards">' + items.map(function (it) {
+        return '<button type="button" class="lcard" ' + (it.sec ? 'data-sec="' + it.sec + '"' : 'data-act="' + it.act + '"') + ">" +
+            '<span class="l-ic ' + it.color + '"><i class="ti ti-' + it.icon + '"></i></span>' +
+            '<span class="l-txt"><b>' + esc(it.title) + "</b><small>" + esc(it.sub || "") + "</small></span>" +
+            (it.badge ? '<span class="l-badge">' + esc(it.badge) + "</span>" : "") +
+            '<span class="l-go"><i class="ti ti-chevron-left"></i></span></button>';
+    }).join("") + "</div>";
+}
+function renderMore(main) {
+    const today = openDay();
+    const a = ST.days[today] || E.emptyDay(today);
+    const pendingDays = unclosedDays(E.addDays(clockDay(), -1));
+    const stale = staleCloses();
+    const closedCount = byType("close").filter(function (c) { return c.status === "closed"; }).length;
+    const pending = Object.keys(syncMeta.dirty || {}).length;
+    const syncSub = !syncMeta.enabled ? "غير مفعّلة — البيانات على هذا الجهاز فقط" :
+        fb.error ? fb.error : fb.status === "online" ? (pending ? "بانتظار رفع " + pending + " سجل" : "متزامن مع الأجهزة الأخرى") : "بانتظار دخول Google";
+    const lastRate = byType("rate").reduce(function (m, r) { return r.updatedAt > m ? r.updatedAt : m; }, "");
+    const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    const hasOpen = hasOpening();
+    const items = [
+        { sec: "rates", title: "أسعار الصرف", sub: lastRate ? "آخر تعديل " + fmtDateTime(lastRate) : "أسعار الشراء والبيع لكل زوج", icon: "chart-candle", color: "c-amber" },
+        { sec: "pnl", title: "الأرباح والخسائر", sub: "صافي اليوم: " + moneyText(a.net), icon: "trending-up", color: "c-green" },
+        { sec: "close", title: "إقفال اليوم", sub: "اليوم المفتوح " + fmtDay(today) + " · ترحيل الأرباح", icon: "lock", color: "c-violet", badge: stale.length ? "إعادة اعتماد" : (pendingDays.length ? pendingDays.length + " غير مقفل" : "") },
+        { sec: "register", title: "سجل الأرباح المرحّلة", sub: closedCount ? closedCount + " يوماً مقفلاً · الإجمالي الشهري والسنوي" : "نتائج الأيام المقفلة", icon: "notebook", color: "c-sky" },
+        { sec: "withdraw", title: "سحب الأرباح", sub: "السحوبات والأرباح المتبقية", icon: "moneybag", color: "c-pink" },
+        { sec: "count", title: "جرد ومطابقة الصندوق", sub: "اختياري · مقارنة الفعلي بالمسجل", icon: "clipboard-check", color: "c-teal" },
+        { sec: "reports", title: "التقارير", sub: "11 تقريراً · طباعة و PDF و Excel", icon: "report-analytics", color: "c-sky" },
+        { sec: "settings", title: "الإعدادات", sub: "العملات والمستخدمون والنسخ الاحتياطي", icon: "settings", color: "c-slate" },
+        { act: "sync", title: "المزامنة بين الأجهزة", sub: syncSub, icon: "cloud", color: "c-violet", badge: syncMeta.enabled && fb.error ? "!" : "" },
+        { act: "theme", title: dark ? "الوضع النهاري" : "الوضع الليلي", sub: dark ? "التبديل إلى الألوان الفاتحة" : "التبديل إلى الألوان الداكنة", icon: dark ? "sun" : "moon", color: "c-amber" }
+    ].filter(function (it) { return hasOpen || it.sec === "settings" || it.act; });
+    main.innerHTML = '<section class="dev-card">' +
+        '<div class="dev-av"><i class="ti ti-user-shield"></i></div>' +
+        "<div class=\"dev-txt\"><small>" + esc(ROLES[me.role] || me.role) + " · مسجّل الدخول</small><b>" + esc(me.name || me.username) + '</b><span class="ltr">' + esc(me.username) + "</span></div>" +
+        '<button type="button" class="dev-more" data-act="pw" aria-label="تغيير كلمة المرور" title="تغيير كلمة المرور"><i class="ti ti-key"></i></button></section>' +
+        listCards(items) +
+        '<button type="button" class="btn danger big wide-btn" data-act="logout"><i class="ti ti-logout"></i>تسجيل الخروج</button>' +
+        '<p class="foot">نظام الصرافة الذكي · الإصدار ' + APP_VERSION + " · رمز الجهاز " + esc(deviceCode()) + "</p>";
+    main.onclick = async function (e) {
+        const c = e.target.closest("[data-sec]");
+        if (c) { go(c.dataset.sec); return; }
+        const b = e.target.closest("[data-act]");
+        if (!b) return;
+        if (b.dataset.act === "theme") { toggleTheme(); renderMore(main); }
+        if (b.dataset.act === "pw") changePassword(me.id);
+        if (b.dataset.act === "sync") { go("settings"); setTimeout(function () { const el = $("#syncCard"); if (el) el.scrollIntoView({ block: "start" }); }, 60); }
+        if (b.dataset.act === "logout") { if (await confirmBox("تسجيل الخروج", "هل تريد تسجيل الخروج من هذا الجهاز؟ تبقى البيانات محفوظة.", "خروج")) logout(); }
+    };
 }
 
 /* =========================================================
@@ -2586,7 +2661,7 @@ function renderSyncBadge() {
         else if (fb.status === "connecting") { cls2 = "badge info"; txt = "جارٍ الاتصال…"; }
         else { cls2 = "badge bad"; txt = navigator.onLine === false ? "دون اتصال — يُحفظ محلياً" : "خطأ في المزامنة"; }
     }
-    el.className = cls2.replace("badge", "side-pill");
+    el.className = "sync-pill " + cls2.replace("badge", "").trim();
     $("span", el).textContent = txt;
     el.title = fb.error || "";
 }
@@ -2669,13 +2744,9 @@ async function init() {
         if (login($("#loginUser").value, $("#loginPass").value)) { $("#loginPass").value = ""; enterApp(); }
         else $("#loginError").textContent = "اسم المستخدم أو كلمة المرور غير صحيحة.";
     });
-    $("#logoutBtn").addEventListener("click", logout);
     $("#themeBtn").addEventListener("click", toggleTheme);
-    $("#themeBtnMobile").addEventListener("click", toggleTheme);
-    $("#menuBtn").addEventListener("click", function () { document.body.classList.add("nav-open"); });
-    $("#menuClose").addEventListener("click", function () { document.body.classList.remove("nav-open"); });
-    $("#navShade").addEventListener("click", function () { document.body.classList.remove("nav-open"); });
-    $$("#sidebar [data-sec]").forEach(function (b) { b.addEventListener("click", function () { go(b.dataset.sec); }); });
+    $("#backBtn").addEventListener("click", function () { go("more"); });
+    $$("#tabbar [data-sec]").forEach(function (b) { b.addEventListener("click", function () { go(b.dataset.sec); }); });
 
     if (channel) channel.onmessage = async function (ev) {
         if (!ev.data || ev.data.t !== "changed") return;
