@@ -73,9 +73,7 @@ async function login(page) {
     await page.fill("#loginUser", "admin");
     await page.fill("#loginPass", "1234");
     await page.click("#loginForm button[type=submit]");
-    /* نافذة تغيير كلمة المرور الافتراضية ← لاحقاً */
-    await page.waitForSelector(".modal", { timeout: 3000 });
-    await page.click('.modal [data-modal="cancel"]');
+    await page.waitForSelector("#app:not(.hidden)");
 }
 async function modalOk(page) {
     await page.waitForSelector('.modal [data-modal="ok"]');

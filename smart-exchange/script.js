@@ -236,7 +236,7 @@ function defaultSettings() {
         refOverride: {},
         costMethod: "avg", rounding: "half-up", valuation: "reference",
         closeMode: "manual", dayStartHour: 0, timeZone: "Asia/Damascus",
-        users: [{ id: "u-admin", username: "admin", name: "المدير", role: "manager", hash: passHash("u-admin", "1234"), mustChange: true }]
+        users: [{ id: "u-admin", username: "admin", name: "المدير", role: "manager", hash: passHash("u-admin", "1234"), mustChange: false }]
     };
 }
 function settingsRec() { const r = records.get("settings"); return r && !r.deleted ? r : defaultSettings(); }
