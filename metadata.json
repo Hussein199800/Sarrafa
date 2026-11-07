@@ -1,6 +1,0 @@
-{
-  "name": "وِرْدِي | Wirdi",
-  "description": "رفيق إسلامي يومي هادئ وجذاب يعمل بدون إنترنت ومن غير إعلانات لمواقيت الصلاة والأذكار والمكتبة الإسلامية.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
