@@ -31,6 +31,10 @@ Arabic (RTL) single-page web app for a currency-exchange shop. Plain HTML/CSS/JS
 - Accounting stays in USD; amounts are shown lira first, dollar second ("الليرة أولاً بالعرض فقط").
 - The admin account must work on several phones at the same time: login is local per device; data is shared through **Firebase** (Google sign-in + Firestore rules with an email list), exactly like Work_1. The user wants a **new dedicated Firebase project** for this system (in progress — put its config in `FB_DEFAULT_CONFIG`). Rules: `firestore.rules`.
 
+## «جرد الأرباح» (2026-11-08)
+- Section `pcount` (`renderProfitCount`), opened from «المزيد». Per currency: opening (morning) and closing (actual) balance + a rate the user types by hand (same orientation as `costOrient`: «ل.س لكل 1$», «$ لكل 1€»). Never read from the rates page.
+- Saved as records of type `profitcount` (`pcCompute` / `pcReport`). This type is NOT in the engine ledger, so it never touches balances, average cost or accounting profits. Saved with `commit(..., {validate:false})`, soft delete with audit, print/Excel via `printReport` / `exportReportXlsx`.
+
 ## Conventions
 - The user writes in Arabic; answer in Arabic.
 - Ask the user ONLY with the clickable question bar (AskUserQuestion), **in Arabic**, options with the recommended one first — never a numbered text list of questions.

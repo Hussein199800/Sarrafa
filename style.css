@@ -522,6 +522,12 @@ input.invalid { border-color: var(--danger) !important; box-shadow: 0 0 0 3px va
 }
 .cur-card.negative { border-color: var(--danger); }
 
+/* بطاقات جرد الأرباح */
+.pc-card .field { margin-top: 10px; }
+.pc-kv { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line-strong); font-size: var(--fs-sm); gap: 4px 12px; }
+.pc-kv > div:nth-child(even), .pc-total > div:nth-child(even) { text-align: left; font-weight: 700; }
+.pc-total { padding: 14px 16px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); }
+
 /* ================= الجداول ================= */
 
 .table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }

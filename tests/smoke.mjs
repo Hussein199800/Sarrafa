@@ -230,6 +230,29 @@ st = await state(pa);
 const inv = await pa.evaluate(function () { return ST.days[openDay()].inventory.toFixed(); });
 check("تسوية الجرد تعدل الرصيد وتُفصل عن الربح", st.bal.USD === String(usdRecorded - 20) && inv === "-20", st.bal.USD + " / " + inv);
 
+/* ---------- جرد الأرباح (مستقل) ---------- */
+const beforePc = await state(pa);
+await nav(pa, "pcount");
+await pa.fill('[data-pc="open"][data-cur="USD"]', "1000");
+await pa.fill('[data-pc="close"][data-cur="USD"]', "1050");
+await pa.fill('[data-pc="open"][data-cur="SYP"]', "110000");
+await pa.fill('[data-pc="close"][data-cur="SYP"]', "104500");
+await pa.fill('[data-pc="rate"][data-cur="SYP"]', "110");
+check("جرد الأرباح: الفرق بالدولار لكل عملة", (await pa.textContent('[data-du="USD"]')).trim() === "+50.00" && (await pa.textContent('[data-du="SYP"]')).trim() === "-50.00",
+    (await pa.textContent('[data-du="USD"]')) + " / " + (await pa.textContent('[data-du="SYP"]')));
+check("جرد الأرباح: الإجمالي متطابق", (await pa.textContent("#pcTS")).indexOf("متطابق") >= 0);
+await pa.fill('[data-pc="close"][data-cur="SYP"]', "110000");
+check("جرد الأرباح: زيادة إجمالية", (await pa.textContent("#pcTS")).indexOf("زيادة") >= 0 && (await pa.textContent("#pcTD")).trim() === "+50.00");
+await pa.click('[data-act="pc-save"]');
+await pa.waitForFunction(function () { return byType("profitcount").length === 1; });
+const afterPc = await state(pa);
+check("جرد الأرباح لا يغيّر الأرصدة ولا الأرباح", JSON.stringify(beforePc) === JSON.stringify(afterPc));
+check("جرد الأرباح محفوظ في السجل", (await pa.$$("[data-pcview]")).length === 1);
+await pa.click("[data-pcview]");
+await pa.waitForSelector(".modal table");
+check("عرض جرد محفوظ", (await pa.textContent(".modal")).indexOf("50.00") >= 0);
+await pa.click('.modal [data-modal="cancel"]');
+
 /* ---------- سحب الأرباح ---------- */
 await nav(pa, "withdraw");
 await pa.selectOption("#wdCur", "USD");
@@ -324,7 +347,7 @@ const overflow = await pa.evaluate(function () { return document.documentElement
 check("لا تمرير أفقي على الكمبيوتر", !overflow);
 await pa.setViewportSize({ width: 390, height: 844 });
 const wide = [];
-for (const sec of ["dashboard", "exchange", "rates", "cashbox", "log", "pnl", "close", "register", "withdraw", "count", "reports", "settings", "more"]) {
+for (const sec of ["dashboard", "exchange", "rates", "cashbox", "log", "pnl", "close", "register", "withdraw", "count", "pcount", "reports", "settings", "more"]) {
     await nav(pa, sec);
     await pa.waitForTimeout(60);
     if (await pa.evaluate(function () { return document.documentElement.scrollWidth > window.innerWidth + 1; })) wide.push(sec);

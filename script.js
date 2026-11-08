@@ -504,7 +504,7 @@ async function autoCloseTick() {
 const SECTIONS = {
     dashboard: renderDashboard, exchange: renderExchange, rates: renderRates, cashbox: renderCashbox,
     log: renderLog, pnl: renderPnl, close: renderClose, register: renderRegister, withdraw: renderWithdraw,
-    count: renderCount, reports: renderReports, settings: renderSettings, more: renderMore
+    count: renderCount, pcount: renderProfitCount, reports: renderReports, settings: renderSettings, more: renderMore
 };
 function go(sec) {
     if (!SECTIONS[sec]) sec = "dashboard";
@@ -550,12 +550,12 @@ function renderTop() {
 const TAB_OF = { dashboard: "dashboard", exchange: "exchange", log: "log", cashbox: "cashbox", more: "more" };
 const SECTION_NAMES = {
     dashboard: "لوحة التحكم", exchange: "عملية صرافة جديدة", rates: "أسعار الصرف", cashbox: "إدارة الصندوق", log: "سجل العمليات",
-    pnl: "الأرباح والخسائر", close: "إقفال اليوم", register: "سجل الأرباح المرحّلة", withdraw: "سحب الأرباح", count: "جرد ومطابقة الصندوق",
+    pnl: "الأرباح والخسائر", close: "إقفال اليوم", register: "سجل الأرباح المرحّلة", withdraw: "سحب الأرباح", count: "جرد ومطابقة الصندوق", pcount: "جرد الأرباح",
     reports: "التقارير", settings: "الإعدادات", more: "المزيد"
 };
 const SECTION_ICONS = {
     dashboard: "layout-dashboard", exchange: "arrows-exchange", rates: "chart-candle", cashbox: "cash-register", log: "list-details",
-    pnl: "trending-up", close: "lock", register: "notebook", withdraw: "moneybag", count: "clipboard-check", reports: "report-analytics", settings: "settings", more: "dots-circle-horizontal"
+    pnl: "trending-up", close: "lock", register: "notebook", withdraw: "moneybag", count: "clipboard-check", pcount: "report-money", reports: "report-analytics", settings: "settings", more: "dots-circle-horizontal"
 };
 function pageHead(title, sub, actions) {
     return '<div class="page-title"><span class="page-icon"><i class="ti ti-' + (SECTION_ICONS[ui.section] || "coins") + '"></i></span>' +
@@ -889,6 +889,7 @@ function renderMore(main) {
         { sec: "register", title: "سجل الأرباح المرحّلة", sub: closedCount ? closedCount + " يوماً مقفلاً · الإجمالي الشهري والسنوي" : "نتائج الأيام المقفلة", icon: "notebook", color: "c-sky" },
         { sec: "withdraw", title: "سحب الأرباح", sub: "السحوبات والأرباح المتبقية", icon: "moneybag", color: "c-pink" },
         { sec: "count", title: "جرد ومطابقة الصندوق", sub: "اختياري · مقارنة الفعلي بالمسجل", icon: "clipboard-check", color: "c-teal" },
+        { sec: "pcount", title: "جرد الأرباح", sub: "الافتتاحي والنهائي بأسعار تحددها يدوياً · مستقل عن الحسابات", icon: "report-money", color: "c-green" },
         { sec: "reports", title: "التقارير", sub: "11 تقريراً · طباعة و PDF و Excel", icon: "report-analytics", color: "c-sky" },
         { sec: "settings", title: "الإعدادات", sub: "العملات والمستخدمون والنسخ الاحتياطي", icon: "settings", color: "c-slate" },
         { act: "sync", title: "المزامنة بين الأجهزة", sub: syncSub, icon: "cloud", color: "c-violet", badge: syncMeta.enabled && fb.error ? "!" : "" },
@@ -1905,6 +1906,198 @@ async function settleLater(id) {
         });
         toast("تمت التسوية", "ok"); render();
     } catch (e) { toast(failMsg(e), "bad"); }
+}
+
+/* =========================================================
+   جرد الأرباح (مستقل تماماً)
+   ---------------------------------------------------------
+   المستخدم يدخل لكل عملة: الرصيد الافتتاحي (صباحاً)، والرصيد النهائي
+   (فعلياً آخر اليوم)، وسعر صرف يحدده يدوياً. النظام يحسب القيمة بالدولار
+   (العملة الأساسية) والفرق لكل عملة والإجمالي.
+   السجل من نوع "profitcount" لا يدخل الدفتر (engine.js يتجاهله)، فلا يمس
+   الأرصدة ولا متوسط التكلفة ولا الأرباح المحاسبية، ولا يقرأ صفحة الأسعار.
+   ========================================================= */
+/* سعر الصرف بصيغة مفهومة: «ل.س لكل 1$» أو «$ لكل 1€» ← قيمة الوحدة بالدولار */
+function pcUnitUSD(code, rate) {
+    if (code === S.base) return E.ONE;
+    const r = E.parse(rate);
+    if (!r || r.lte(0)) return null;
+    return costOrient(code).usdIsBase ? E.ONE.div(r) : r;
+}
+/* حساب جرد كامل من بنوده (يُستخدم للعرض والطباعة والسجل) */
+function pcCompute(lines) {
+    const out = { lines: [], openUSD: E.ZERO, closeUSD: E.ZERO, diffUSD: E.ZERO, complete: true, sypRate: null };
+    (lines || []).forEach(function (l) {
+        const open = E.parse(l.open), close = E.parse(l.close);
+        if (open === null && close === null) return;
+        const unit = pcUnitUSD(l.cur, l.rate);
+        const o = open || E.ZERO, c = close || E.ZERO;
+        const row = { cur: l.cur, rate: l.cur === S.base ? "1" : (l.rate || ""), open: o, close: c, diff: c.minus(o), unit: unit };
+        if (unit) {
+            row.openUSD = o.times(unit); row.closeUSD = c.times(unit); row.diffUSD = row.closeUSD.minus(row.openUSD);
+            out.openUSD = out.openUSD.plus(row.openUSD); out.closeUSD = out.closeUSD.plus(row.closeUSD); out.diffUSD = out.diffUSD.plus(row.diffUSD);
+            if (l.cur === S.display) out.sypRate = E.ONE.div(unit);
+        } else out.complete = false;
+        out.lines.push(row);
+    });
+    return out;
+}
+function pcStatus(d) {
+    const x = E.dec(d);
+    return x.gt(0) ? '<span class="badge ok">زيادة</span>' : x.lt(0) ? '<span class="badge bad">نقص</span>' : '<span class="badge info">متطابق</span>';
+}
+function pcStatusText(d) { const x = E.dec(d); return x.gt(0) ? "زيادة" : x.lt(0) ? "نقص" : "متطابق"; }
+function pcMoney(usd, sypRate, colorFrom) {
+    const d = E.dec(usd);
+    return '<span class="' + cls(colorFrom === undefined ? d : colorFrom) + '">' + (sypRate ? fmtCur(d.times(sypRate), S.display) + ' <span class="muted small">(' + fmtUSD(d) + ")</span>" : fmtUSD(d)) + "</span>";
+}
+function pcReport(rec) {
+    const c = pcCompute(rec.lines);
+    const rows = c.lines.map(function (l) {
+        const dp = E.decimalsOf(S, l.cur);
+        return [curName(l.cur), cN(l.open, dp), cN(l.close, dp), l.cur === S.base ? "1" : (l.rate ? fmtTrim(l.rate, 6) + " " + costOrient(l.cur).label : "—"),
+            l.unit ? cN(l.openUSD, 2) : "—", l.unit ? cN(l.closeUSD, 2) : "—", cN(l.diff, dp, true), l.unit ? cN(l.diffUSD, 2, true) : "—", pcStatusText(l.diff)];
+    });
+    return {
+        key: "profit-count", title: "تقرير جرد الأرباح " + (rec.no || "") + " — " + fmtDay(rec.day),
+        head: ["العملة", "الرصيد الافتتاحي", "الرصيد النهائي", "سعر الصرف المعتمد", "الافتتاحي بالدولار", "النهائي بالدولار", "الفرق بالعملة", "الفرق بالدولار", "الحالة"],
+        rows: rows, totals: ["الإجمالي", "", "", "", cN(c.openUSD, 2), cN(c.closeUSD, 2), "", cN(c.diffUSD, 2, true), pcStatusText(c.diffUSD)],
+        summary: [["إجمالي فرق الصندوق", (c.diffUSD.gt(0) ? "زيادة " : c.diffUSD.lt(0) ? "نقص " : "متطابق ") + fmt(c.diffUSD.abs(), 2) + " " + sym(S.base) +
+            (c.sypRate ? " ≈ " + fmt(c.diffUSD.abs().times(c.sypRate), E.decimalsOf(S, S.display)) + " " + sym(S.display) : "")]]
+            .concat(rec.note ? [["ملاحظات", rec.note]] : [])
+            .concat([["ملاحظة", "جرد مستقل بأسعار محددة يدوياً؛ لا يؤثر على أرصدة النظام ولا أرباحه."]])
+    };
+}
+function renderProfitCount(main) {
+    if (!ui.pc) ui.pc = { day: openDay(), lines: {}, note: "" };
+    const d = ui.pc;
+    const list = byType("profitcount").sort(function (a, b) { return (a.day + a.at) < (b.day + b.at) ? 1 : -1; });
+    const last = list[0];
+    const allowed = can("countSave");
+    main.innerHTML = pageHead("جرد الأرباح", "أدخل الرصيد الافتتاحي (صباحاً) والنهائي (فعلياً آخر اليوم) وسعر الصرف الذي تعتمده لكل عملة. صفحة مستقلة: لا تغيّر أي رصيد أو عملية أو ربح في النظام.") +
+        '<div class="card"><div class="grid g3">' +
+        '<label class="field"><span>تاريخ الجرد</span><input type="date" id="pcDay" value="' + esc(d.day) + '"></label>' +
+        '<label class="field"><span>ملاحظات</span><input id="pcNote" maxlength="300" value="' + esc(d.note) + '"></label>' +
+        '<div class="row" style="align-self:end">' + (last ? '<button class="btn" data-act="pc-fill"><i class="ti ti-arrow-back-up"></i>النهائي في آخر جرد ← افتتاحي</button>' : "") +
+        '<button class="btn" data-act="pc-clear"><i class="ti ti-eraser"></i>مسح الإدخال</button></div></div>' +
+        '<div class="grid g4" style="margin-top:16px">' +
+        E.enabledCurrencies(S).map(function (c) {
+            const l = d.lines[c.code] || (d.lines[c.code] = { open: "", close: "", rate: c.code === S.base ? "1" : "" });
+            return '<div class="kpi pc-card"><span class="code">' + esc(c.code) + '</span><div class="label">' + esc(c.name) + "</div>" +
+                '<label class="field"><span>الرصيد الافتتاحي (صباحاً)</span><input class="num-in" inputmode="decimal" data-pc="open" data-cur="' + c.code + '" value="' + esc(l.open) + '"></label>' +
+                '<label class="field"><span>الرصيد النهائي (فعلياً)</span><input class="num-in" inputmode="decimal" data-pc="close" data-cur="' + c.code + '" value="' + esc(l.close) + '"></label>' +
+                (c.code === S.base ? '<div class="field"><span>سعر الصرف</span><input value="1 (العملة الأساسية)" readonly></div>' :
+                    '<label class="field"><span>سعر الصرف المعتمد (' + esc(costOrient(c.code).label) + ')</span><input class="num-in" inputmode="decimal" data-pc="rate" data-cur="' + c.code + '" value="' + esc(l.rate) + '"></label>') +
+                '<div class="kv pc-kv"><div>الافتتاحي $</div><div class="num" data-o="' + c.code + '"></div><div>النهائي $</div><div class="num" data-c="' + c.code + '"></div>' +
+                '<div>الفرق بالعملة</div><div class="num" data-dq="' + c.code + '"></div><div>الفرق $</div><div class="num" data-du="' + c.code + '"></div><div>الحالة</div><div data-st="' + c.code + '"></div></div></div>';
+        }).join("") + "</div>" +
+        '<div class="kv pc-total" style="margin-top:16px"><div>إجمالي الافتتاحي $</div><div class="num" id="pcTO"></div><div>إجمالي النهائي $</div><div class="num" id="pcTC"></div><div>إجمالي الفرق $</div><div class="num" id="pcTD"></div><div>الحالة</div><div id="pcTS"></div></div>' +
+        '<div id="pcResult" style="margin-top:16px"></div><p class="error-text" id="pcErr"></p>' +
+        '<div class="row"><button class="btn primary big" data-act="pc-save"' + (allowed ? "" : " disabled") + '><i class="ti ti-device-floppy"></i>حفظ الجرد</button>' +
+        '<button class="btn big" data-act="pc-print"><i class="ti ti-printer"></i>طباعة</button></div></div>' +
+        '<div class="card"><h3><i class="ti ti-history"></i>سجل جرد الأرباح</h3><div class="table-wrap"><table><thead><tr><th>رقم</th><th>التاريخ</th><th>الوقت</th><th>العملات</th><th>الافتتاحي $</th><th>النهائي $</th><th>إجمالي الفرق</th><th>الحالة</th><th>بواسطة</th><th></th></tr></thead><tbody>' +
+        (list.length ? list.map(function (r) {
+            const c = pcCompute(r.lines);
+            return '<tr><td class="ltr">' + esc(r.no || "") + "</td><td>" + fmtDay(r.day) + '</td><td class="num">' + esc(fmtTime(r.at)) + "</td><td>" + c.lines.map(function (l) { return esc(l.cur); }).join("، ") +
+                '</td><td class="num">' + fmt(c.openUSD, 2) + '</td><td class="num">' + fmt(c.closeUSD, 2) + "</td><td>" + pcMoney(c.diffUSD, c.sypRate) + "</td><td>" + pcStatus(c.diffUSD) + "</td><td>" + esc(r.createdBy || "") + "</td><td>" +
+                '<button class="btn sm" data-pcview="' + esc(r.id) + '">عرض</button><button class="btn sm" data-pcprint="' + esc(r.id) + '">طباعة</button>' +
+                (can("editOp") ? '<button class="btn sm" data-pcdel="' + esc(r.id) + '">حذف</button>' : "") + "</td></tr>";
+        }).join("") : '<tr><td colspan="10" class="empty">لا توجد عمليات جرد محفوظة</td></tr>') + "</tbody></table></div></div>";
+
+    function draftRecord() {
+        return { day: d.day, note: d.note, lines: E.enabledCurrencies(S).map(function (c) { const l = d.lines[c.code]; return { cur: c.code, open: l.open, close: l.close, rate: c.code === S.base ? "1" : l.rate }; }) };
+    }
+    function update() {
+        const c = pcCompute(draftRecord().lines);
+        E.enabledCurrencies(S).forEach(function (cur) {
+            const row = c.lines.find(function (l) { return l.cur === cur.code; });
+            const dp = E.decimalsOf(S, cur.code);
+            const set = function (sel, html) { $(sel, main).innerHTML = html; };
+            if (!row) { ["o", "c", "dq", "du", "st"].forEach(function (k) { set("[data-" + k + '="' + cur.code + '"]', ""); }); return; }
+            set('[data-o="' + cur.code + '"]', row.unit ? fmt(row.openUSD, 2) : "—");
+            set('[data-c="' + cur.code + '"]', row.unit ? fmt(row.closeUSD, 2) : "—");
+            set('[data-dq="' + cur.code + '"]', '<span class="' + cls(row.diff) + '">' + (row.diff.gt(0) ? "+" : "") + fmt(row.diff, dp) + "</span>");
+            set('[data-du="' + cur.code + '"]', row.unit ? '<span class="' + cls(row.diffUSD) + '">' + (row.diffUSD.gt(0) ? "+" : "") + fmt(row.diffUSD, 2) + "</span>" : '<span class="warn-c small">أدخل السعر</span>');
+            set('[data-st="' + cur.code + '"]', pcStatus(row.diff));
+        });
+        $("#pcTO").textContent = fmt(c.openUSD, 2);
+        $("#pcTC").textContent = fmt(c.closeUSD, 2);
+        $("#pcTD").innerHTML = '<span class="' + cls(c.diffUSD) + '">' + (c.diffUSD.gt(0) ? "+" : "") + fmt(c.diffUSD, 2) + "</span>";
+        $("#pcTS").innerHTML = c.lines.length ? pcStatus(c.diffUSD) : "";
+        $("#pcResult").innerHTML = c.lines.length ? '<div class="kpi ' + (c.diffUSD.gt(0) ? "profit" : c.diffUSD.lt(0) ? "loss" : "info") + '"><div class="label">إجمالي فرق الصندوق النهائي</div><div class="value">' +
+            (c.diffUSD.isZero() ? "متطابق — لا يوجد فرق" : (c.diffUSD.gt(0) ? "زيادة " : "نقص ") + pcMoney(c.diffUSD.abs(), c.sypRate, c.diffUSD)) +
+            '</div><div class="sub">الافتتاحي ' + fmtUSD(c.openUSD) + " ← النهائي " + fmtUSD(c.closeUSD) + (c.complete ? "" : " — بعض العملات بلا سعر صرف ولم تُحسب بالدولار") + "</div></div>" : "";
+    }
+    $$("[data-pc]", main).forEach(function (el) {
+        el.addEventListener("input", function () {
+            d.lines[el.dataset.cur][el.dataset.pc] = el.value;
+            const v = el.value.trim();
+            el.classList.toggle("invalid", v !== "" && (E.parse(v) === null || E.parse(v).lt(0) || (el.dataset.pc === "rate" && E.parse(v).isZero())));
+            update();
+        });
+    });
+    $("#pcDay").addEventListener("change", function (e) { d.day = e.target.value || openDay(); });
+    $("#pcNote").addEventListener("input", function (e) { d.note = e.target.value; });
+    update();
+
+    main.onclick = async function (e) {
+        const v = e.target.closest("[data-pcview]");
+        if (v) { showProfitCount(v.dataset.pcview); return; }
+        const pr = e.target.closest("[data-pcprint]");
+        if (pr) { printReport(pcReport(records.get(pr.dataset.pcprint))); return; }
+        const del = e.target.closest("[data-pcdel]");
+        if (del) {
+            const rec = records.get(del.dataset.pcdel);
+            const reason = await promptBox("حذف الجرد " + (rec.no || ""), "يُحذف حذفاً منطقياً ويبقى في سجل التدقيق. لا يؤثر على أي رصيد.", "سبب الحذف", { danger: true, okText: "حذف" });
+            if (!reason) return;
+            const upd = Object.assign(clone(rec), { deleted: true, deletedAt: nowISO(), deletedBy: me.username, deleteReason: reason });
+            try { await commit([upd, audit("delete", upd, rec, reason)], { validate: false }); toast("تم حذف الجرد", "ok"); render(); } catch (er) { toast(failMsg(er), "bad"); }
+            return;
+        }
+        const b = e.target.closest("[data-act]");
+        if (!b) return;
+        if (b.dataset.act === "pc-clear") { ui.pc = null; render(); return; }
+        if (b.dataset.act === "pc-fill") {
+            last.lines.forEach(function (l) { if (d.lines[l.cur]) { d.lines[l.cur].open = l.close || ""; if (l.cur !== S.base && !d.lines[l.cur].rate) d.lines[l.cur].rate = l.rate || ""; } });
+            render(); return;
+        }
+        const rec = Object.assign({ id: uid("pc"), type: "profitcount", no: nextNo("P", "profitcount"), at: nowISO(), base: S.base }, draftRecord());
+        const c = pcCompute(rec.lines);
+        const err = $("#pcErr"); err.textContent = "";
+        if (!c.lines.length) { err.textContent = "أدخل الرصيد الافتتاحي أو النهائي لعملة واحدة على الأقل."; return; }
+        for (const l of rec.lines) {
+            for (const k of ["open", "close"]) { const x = (l[k] || "").trim(); if (x && (E.parse(x) === null || E.parse(x).lt(0))) { err.textContent = "رصيد غير صالح لـ " + curName(l.cur) + "."; return; } }
+            if ((l.open || l.close) && l.cur !== S.base && !pcUnitUSD(l.cur, l.rate)) { err.textContent = "أدخل سعر صرف صحيحاً لـ " + curName(l.cur) + "."; return; }
+        }
+        if (b.dataset.act === "pc-print") { printReport(pcReport(Object.assign({}, rec, { no: "" }))); return; }
+        if (b.dataset.act !== "pc-save") return;
+        rec.lines = rec.lines.filter(function (l) { return (l.open || "").trim() || (l.close || "").trim(); });
+        rec.lines.forEach(function (l) {
+            ["open", "close"].forEach(function (k) { l[k] = (l[k] || "").trim() ? E.parse(l[k]).toFixed() : "0"; });
+            l.rate = l.cur === S.base ? "1" : E.parse(l.rate).toFixed();
+        });
+        b.disabled = true;
+        try {
+            /* لا تحقق من الأرصدة: الجرد لا يدخل الدفتر */
+            await commit([rec], { validate: false });
+            toast("تم حفظ الجرد <b>" + esc(rec.no) + "</b> — " + (c.diffUSD.isZero() ? "متطابق" : (c.diffUSD.gt(0) ? "زيادة " : "نقص ") + fmtUSD(c.diffUSD.abs())), "ok");
+            ui.pc = { day: openDay(), lines: {}, note: "" };
+            render();
+        } catch (er) { err.textContent = failMsg(er); b.disabled = false; }
+    };
+}
+function showProfitCount(id) {
+    const rec = records.get(id);
+    if (!rec) return;
+    const rep = pcReport(rec);
+    modal("<h3>" + esc(rep.title) + "</h3>" +
+        '<p class="small muted">حُفظ ' + esc(fmtDateTime(rec.createdAt || rec.at)) + " بواسطة " + esc(rec.createdBy || "") + "</p>" +
+        reportTableHtml(rep) + summaryHtml(rep) +
+        '<div class="actions"><button class="btn primary" data-modal="print"><i class="ti ti-printer"></i>طباعة</button><button class="btn" data-modal="xlsx">Excel</button><button class="btn" data-modal="cancel">إغلاق</button></div>', { wide: true })
+        .then(function (v) {
+            if (v === "print") printReport(rep);
+            if (v === "xlsx") exportReportXlsx(rep);
+        });
 }
 
 /* =========================================================
