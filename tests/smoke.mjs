@@ -43,6 +43,7 @@ async function attachFakeFirebase(context, email) {
             signOut: function () { return Promise.resolve(); },
             listen: function (ws, since, onDocs) {
                 let last = since || 0, stop = false;
+                window.__sxListens = (window.__sxListens || 0) + 1;
                 async function tick() {
                     if (stop) return;
                     const docs = await window.__sxPull(ws, last);
@@ -50,9 +51,12 @@ async function attachFakeFirebase(context, email) {
                     setTimeout(tick, 200);
                 }
                 tick();
-                return function () { stop = true; };
+                return function () { if (!stop) window.__sxListens--; stop = true; };
             },
-            push: function (ws, list) { return window.__sxPush(ws, list); }
+            push: function (ws, list) {
+                if (window.__sxFailPush) return Promise.reject(Object.assign(new Error("network unavailable"), { code: "unavailable" }));
+                return window.__sxPush(ws, list);
+            }
         };
     }, email);
 }
@@ -337,6 +341,138 @@ await pa.click('[data-act="cash-save"]');
 await modalOk(pa);
 await tab2.waitForFunction(function () { return byType("cash").length === 2; }, null, { timeout: 5000 });
 check("تبويب آخر يتحدث تلقائياً", true);
+
+/* ================= اختبارات إصلاحات مراجعة 17/11/2026 ================= */
+
+/* B04: تعديل حقلين مختلفين من تبويبين يحتفظ بكليهما */
+await nav(pa, "settings");
+await tab2.evaluate(function () { go("settings"); });
+await tab2.waitForSelector("#stRound");
+await pa.fill("#stShop", "NEW SHOP");
+await pa.click('[data-act="save-settings"]');
+await pa.waitForFunction(function () { return settingsRec().shopName === "NEW SHOP"; });
+await tab2.selectOption("#stRound", "down");
+await tab2.click('[data-act="save-settings"]');
+await tab2.waitForFunction(function () { return settingsRec().rounding === "down"; }, null, { timeout: 5000 });
+await pa.waitForFunction(function () { return settingsRec().rounding === "down"; }, null, { timeout: 5000 });
+check("B04: حفظ نسخة إعدادات قديمة لا يمسح تعديل تبويب آخر", await pa.evaluate(function () { return settingsRec().shopName === "NEW SHOP" && settingsRec().rounding === "down"; }));
+/* B04: تعديل الحقل نفسه بعد أن غيّره تبويب آخر يُرفض بتنبيه */
+await tab2.evaluate(function () { go("settings"); });
+await tab2.waitForSelector("#stShop");
+await tab2.fill("#stShop", "SHOP B");
+await tab2.click(".page-title h2");
+await pa.evaluate(function () { go("settings"); });
+await pa.fill("#stShop", "SHOP A");
+await pa.click('[data-act="save-settings"]');
+await tab2.waitForFunction(function () { return settingsRec().shopName === "SHOP A"; }, null, { timeout: 5000 });
+check("B04: مسودة التبويب الثاني باقية بعد التحديث", (await tab2.inputValue("#stShop")) === "SHOP B");
+await tab2.click('[data-act="save-settings"]');
+await tab2.waitForTimeout(400);
+check("B04: تعديل الحقل نفسه من نسخة قديمة يكشف التعارض ولا يستبدل بصمت", await tab2.evaluate(function () { return settingsRec().shopName === "SHOP A"; }));
+await tab2.close();
+
+/* B05: رمز عملة لها رصيد افتتاحي مقفل، ومحاولة تغييره تُرفض */
+await pa.evaluate(function () { go("settings"); });
+check("B05: حقل رمز عملة لها بيانات للقراءة فقط", await pa.evaluate(function () { return document.querySelector('[data-sc="code"][data-i="2"]').readOnly; }));
+await pa.evaluate(function () { const el = document.querySelector('[data-sc="code"][data-i="2"]'); el.readOnly = false; el.value = "GBP"; el.dispatchEvent(new Event("input")); });
+await pa.click('[data-act="save-settings"]');
+await pa.waitForTimeout(300);
+check("B05: تغيير رمز TRY إلى GBP مرفوض ويبقى الرصيد ظاهراً", await pa.evaluate(function () { return !!E.curInfo(S, "TRY") && !E.curInfo(S, "GBP") && ST.curs.TRY.qty.gt(0); }));
+
+/* B09: تحديث خارجي لا يمسح ما كُتب في نموذج الصندوق */
+await nav(pa, "cashbox");
+await pa.fill("#cbAmt", "123");
+await pa.fill("#cbReason", "مسودة");
+await pa.click(".page-title h2");
+await pa.evaluate(function () { renderSoft(); });
+check("B09: المسودة باقية بعد التحديث", (await pa.inputValue("#cbAmt")) === "123" && (await pa.inputValue("#cbReason")) === "مسودة");
+await pb.evaluate(async function () { await commit([{ id: uid("c"), type: "cash", kind: "add", cur: "USD", amount: "1", day: openDay(), at: nowISO(), reason: "من الجوال الثاني", no: nextNo("C", "cash") }]); });
+await pa.waitForFunction(function () { return byType("cash").some(function (r) { return r.reason === "من الجوال الثاني"; }); }, null, { timeout: 8000 });
+await pa.waitForTimeout(200);
+check("B09: المسودة باقية بعد وصول تغيير من جوال آخر", (await pa.inputValue("#cbAmt")) === "123" && (await pa.inputValue("#cbReason")) === "مسودة");
+
+/* B06: استبدال الرصيد يحترم دقة العملة */
+await pa.click('[data-tab="replace"]');
+await pa.selectOption("#cbCur", "USD");
+const usdNow = await pa.evaluate(function () { return ST.curs.USD.qty.toFixed(); });
+await pa.fill("#cbTarget", "5000.001");
+await pa.fill("#cbReason", "اختبار الدقة");
+await pa.click('[data-act="cash-save"]');
+await pa.waitForTimeout(200);
+check("B06: رفض 5000.001 USD دون تغيير البيانات", (await pa.textContent("#cbErr")).indexOf("المنازل العشرية") >= 0 && (await pa.evaluate(function () { return ST.curs.USD.qty.toFixed(); })) === usdNow);
+await pa.selectOption("#cbCur", "SYP");
+await pa.fill("#cbTarget", "1.5");
+await pa.click('[data-act="cash-save"]');
+await pa.waitForTimeout(200);
+check("B06: رفض 1.5 SYP", (await pa.textContent("#cbErr")).indexOf("المنازل العشرية") >= 0);
+
+/* U02: التركيز محصور داخل النافذة ويعود بعد إغلاقها */
+await pa.focus("#cbReason");
+await pa.evaluate(function () { window.__cb = confirmBox("اختبار", "نص", "موافق"); });
+await pa.waitForSelector(".modal");
+let inside = true;
+for (let i = 0; i < 6; i++) { await pa.keyboard.press("Tab"); inside = inside && await pa.evaluate(function () { return !!document.activeElement.closest(".modal"); }); }
+for (let i = 0; i < 3; i++) { await pa.keyboard.press("Shift+Tab"); inside = inside && await pa.evaluate(function () { return !!document.activeElement.closest(".modal"); }); }
+check("U02: Tab وShift+Tab لا يخرجان من النافذة", inside);
+check("U02: النافذة مسماة بعنوانها", await pa.evaluate(function () { const m = document.querySelector(".modal"); return !!m.getAttribute("aria-labelledby") && !!document.getElementById(m.getAttribute("aria-labelledby")); }));
+await pa.keyboard.press("Escape");
+await pa.waitForTimeout(100);
+check("U02: التركيز يعود إلى العنصر الذي فتح النافذة", await pa.evaluate(function () { return document.activeElement && document.activeElement.id === "cbReason"; }));
+
+/* B08: فشل الرفع لا يُعرض نجاحاً، والسجلات تبقى بانتظار الرفع */
+await pa.evaluate(function () { window.__sxFailPush = true; });
+await pa.fill("#cbReason", "");
+await pa.click('[data-tab="add"]');
+await pa.selectOption("#cbCur", "USD");
+await pa.fill("#cbAmt", "2");
+await pa.fill("#cbReason", "اختبار فشل الرفع");
+await pa.click('[data-act="cash-save"]');
+await modalOk(pa);
+await pa.waitForFunction(function () { return byType("cash").some(function (r) { return r.reason === "اختبار فشل الرفع"; }); });
+await nav(pa, "settings");
+await pa.waitForSelector('[data-sync="now"]');
+await pa.click('[data-sync="now"]');
+await pa.waitForTimeout(400);
+const toastsFail = await pa.evaluate(function () { return Array.from(document.querySelectorAll(".toast")).map(function (t) { return t.textContent; }).join(" | "); });
+check("B08: فشل الشبكة لا يعرض «تم»", toastsFail.indexOf("لم تكتمل") >= 0 && toastsFail.indexOf("تم رفع") < 0, toastsFail);
+check("B08: السجلات تبقى بانتظار الرفع", await pa.evaluate(function () { return Object.keys(syncMeta.dirty).length > 0; }));
+check("U03: مؤشر المزامنة يوضح الحالة بنص متاح", await pa.evaluate(function () { const b = document.getElementById("syncBadge"); return b.tagName === "BUTTON" && /حالة المزامنة/.test(b.getAttribute("aria-label")); }));
+await pa.evaluate(function () { window.__sxFailPush = false; document.querySelectorAll(".toast").forEach(function (t) { t.style.display = "none"; t.className = "x"; }); });
+await pa.click('[data-sync="now"]');
+await pa.waitForFunction(function () { return Object.keys(syncMeta.dirty).length === 0; }, null, { timeout: 5000 });
+const toastsOk = await pa.evaluate(function () { return Array.from(document.querySelectorAll(".toast")).map(function (t) { return t.textContent; }).join(" | "); });
+check("B08: النجاح يظهر بعد إعادة المحاولة الناجحة فقط", toastsOk.indexOf("تم رفع") >= 0, toastsOk);
+
+/* B07: ثلاث دورات إيقاف/تفعيل دون إعادة تحميل */
+let cyclesOk = true;
+for (let i = 0; i < 3; i++) {
+    await pa.click('[data-sync="disable"]');
+    await modalOk(pa);
+    await pa.waitForFunction(function () { return !syncMeta.enabled; });
+    const offState = await pa.evaluate(function () { return [window.__sxListens, fb.status]; });
+    if (!(offState[0] === 0 && offState[1] === "off")) console.log("B07 off", i, JSON.stringify(offState));
+    cyclesOk = cyclesOk && offState[0] === 0 && offState[1] === "off";
+    await pa.click('[data-sync="enable"]');
+    await pa.waitForFunction(function () { return fb.status === "online" && !!fb.unsub; }, null, { timeout: 5000 }).catch(function () {});
+    const onState = await pa.evaluate(function () { return [window.__sxListens, fb.status]; });
+    if (!(onState[0] === 1 && onState[1] === "online")) console.log("B07 on", i, JSON.stringify(onState));
+    cyclesOk = cyclesOk && onState[0] === 1 && onState[1] === "online";
+}
+check("B07: الإيقاف وإعادة التفعيل 3 مرات (مستمع واحد أثناء التفعيل وصفر أثناء الإيقاف)", cyclesOk);
+await pb.evaluate(async function () { await commit([{ id: uid("c"), type: "cash", kind: "add", cur: "USD", amount: "1", day: openDay(), at: nowISO(), reason: "بعد إعادة التفعيل", no: nextNo("C", "cash") }]); });
+await pa.waitForFunction(function () { return byType("cash").some(function (r) { return r.reason === "بعد إعادة التفعيل"; }); }, null, { timeout: 8000 }).then(function () { check("B07: يستقبل تغييرات الجوال الثاني بعد إعادة التفعيل", true); }, function () { check("B07: يستقبل تغييرات الجوال الثاني بعد إعادة التفعيل", false); });
+
+/* U01: التاريخ والوقت ورقم العملية كاملة عند 320 و360 */
+for (const w of [320, 360]) {
+    await pa.setViewportSize({ width: w, height: 844 });
+    await nav(pa, "exchange");
+    await pa.waitForSelector("#exClock");
+    const clipped = await pa.evaluate(function () {
+        return Array.from(document.querySelectorAll(".meta3 input")).filter(function (el) { return el.scrollWidth > el.clientWidth + 1; }).map(function (el) { return el.value; });
+    });
+    check("U01: لا قص في بيانات العملية عند " + w, clipped.length === 0, clipped.join(","));
+}
+await pa.setViewportSize({ width: 390, height: 844 });
 
 /* ---------- الوضع الليلي وشاشة الكمبيوتر ---------- */
 await pa.click("#themeBtn");

@@ -35,6 +35,16 @@ Arabic (RTL) single-page web app for a currency-exchange shop. Plain HTML/CSS/JS
 - Section `pcount` (`renderProfitCount`), opened from «المزيد». Per currency: opening (morning) and closing (actual) balance + a rate the user types by hand (same orientation as `costOrient`: «ل.س لكل 1$», «$ لكل 1€»). Never read from the rates page.
 - Saved as records of type `profitcount` (`pcCompute` / `pcReport`). This type is NOT in the engine ledger, so it never touches balances, average cost or accounting profits. Saved with `commit(..., {validate:false})`, soft delete with audit, print/Excel via `printReport` / `exportReportXlsx`.
 
+## Review fixes (Codex review of 99caf77, 2026-11-17)
+- B03 `E.newNegatives`: rejects a change that makes the worst balance of a currency worse, or a new negative that doesn't improve the worst; fixes that reduce a deficit are allowed.
+- B04 `commit(fn)`: `changes` may be a function of the latest records, computed inside the lock. Settings save = `mergeSettings(latest, base, edited)` (only fields the user changed; same field changed elsewhere ⇒ conflict error). `ui.settingsBase` keeps the page's base across soft re-renders, reset by `go()` and after save. Users via `saveUsers(mutate)`. Exchange edit keeps `baseUpdatedAt`; reopen checks the close's `updatedAt`.
+- B05 `curReferenced(code)`: a currency code (and its pricing strength) is locked once any record refers to it, opening balance included.
+- B06: replace target / opening / profit count reject more decimals than the currency allows (never round silently).
+- B07/B08: `fbOnUser` restarts listening on every enable; `fbPushNow()` returns `{ok, error}`; «مزامنة الآن» shows success only when nothing is left pending.
+- B09: `renderSoft` keeps unsaved inputs (`snapshotFields` / `restoreFields`).
+- U01 meta row on two lines ≤640; U02 modal focus trap + `inert` background + focus return + `aria-labelledby`; U03 `#syncBadge` is a button with icon + short text + aria-label, tap → `showSyncInfo()`.
+- NOT done yet (needs the dedicated Firebase project + Emulator): B01 conditional cloud writes (revision/transaction) and B02 cross-device overdraft policy. Until then multi-phone use can still produce a negative balance (it is flagged on the dashboard) and a stale offline push can overwrite a newer cloud copy.
+
 ## Conventions
 - The user writes in Arabic; answer in Arabic.
 - Ask the user ONLY with the clickable question bar (AskUserQuestion), **in Arabic**, options with the recommended one first — never a numbered text list of questions.

@@ -284,13 +284,16 @@ function negMessage(list) {
     return "لا يمكن الحفظ: سيصبح رصيد " + curName(n.cur) + " سالباً (" + fmt(n.qty, E.decimalsOf(S, n.cur)) + ")" +
         (n.no ? " عند العملية " + n.no : "") + (list.length > 1 ? " وفي " + (list.length - 1) + " موضع آخر" : "") + ".";
 }
-/* changes: سجلات كاملة. opts.check(nextMap, nextState, nextSettings) يعيد رسالة خطأ أو لا شيء */
+/* changes: سجلات كاملة، أو دالة (أحدث السجلات) ← سجلات تُحسب داخل القفل على أحدث نسخة
+   (تمنع استبدال تعديل تبويب/جهاز آخر بنسخة نموذج قديمة).
+   opts.check(nextMap, nextState, nextSettings, prevMap) يعيد رسالة خطأ أو لا شيء */
 function commit(changes, opts) {
     opts = opts || {};
     return withLock(async function () {
         await reloadRecords();
         const savedSync = await DB.get("meta", "sync");
         if (savedSync) syncMeta = savedSync;
+        if (typeof changes === "function") changes = changes(records);
         const prevSettings = effectiveSettings();
         const prevState = E.replay(Array.from(records.values()), prevSettings);
         const next = new Map(records);
@@ -341,14 +344,40 @@ function toast(html, kind, ms) {
 function modal(html, opts) {
     opts = opts || {};
     return new Promise(function (resolve) {
+        const opener = document.activeElement;
         const back = document.createElement("div");
         back.className = "modal-back";
-        back.innerHTML = '<div class="modal ' + (opts.wide ? "wide" : "") + '" role="dialog" aria-modal="true">' + html + "</div>";
+        back.innerHTML = '<div class="modal ' + (opts.wide ? "wide" : "") + '" role="dialog" aria-modal="true" tabindex="-1">' + html + "</div>";
         $("#modalRoot").appendChild(back);
         const box = back.firstChild;
-        function done(v) { back.remove(); document.removeEventListener("keydown", onKey); resolve(v); }
-        function onKey(e) { if (e.key === "Escape" && !opts.noEscape) done(null); }
-        document.addEventListener("keydown", onKey);
+        const h = box.querySelector("h3");
+        if (h) { h.id = uid("mt"); box.setAttribute("aria-labelledby", h.id); }
+        /* الخلفية غير قابلة للتفاعل أثناء النافذة، والتركيز محصور داخلها */
+        const behind = ["#app", "#loginScreen", ".skip-link"].map(function (q) { return $(q); }).filter(Boolean);
+        const wasInert = behind.map(function (el) { return el.inert; });
+        behind.forEach(function (el) { el.inert = true; });
+        function focusables() {
+            return $$('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', box)
+                .filter(function (el) { return el.getClientRects().length > 0; });
+        }
+        function done(v) {
+            back.remove();
+            document.removeEventListener("keydown", onKey, true);
+            behind.forEach(function (el, i) { el.inert = wasInert[i]; });
+            if (opener && document.contains(opener) && typeof opener.focus === "function") { try { opener.focus(); } catch (e) { /* */ } }
+            resolve(v);
+        }
+        function onKey(e) {
+            if (!document.contains(back)) return;
+            if (e.key === "Escape" && !opts.noEscape) { e.preventDefault(); done(null); return; }
+            if (e.key !== "Tab") return;
+            const list = focusables();
+            if (!list.length) { e.preventDefault(); box.focus(); return; }
+            const first = list[0], last = list[list.length - 1];
+            if (e.shiftKey && (document.activeElement === first || !box.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+            else if (!e.shiftKey && (document.activeElement === last || !box.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+        }
+        document.addEventListener("keydown", onKey, true);
         back.addEventListener("click", function (e) { if (e.target === back && !opts.noEscape) done(null); });
         box.addEventListener("click", function (e) {
             const b = e.target.closest("[data-modal]");
@@ -509,9 +538,13 @@ const SECTIONS = {
 function go(sec) {
     if (!SECTIONS[sec]) sec = "dashboard";
     ui.section = sec;
+    ui.settingsBase = null;
     lsSet("sx_section", sec);
     const tab = TAB_OF[sec] || "more";
-    $$("#tabbar [data-sec]").forEach(function (b) { b.classList.toggle("on", b.dataset.sec === tab); });
+    $$("#tabbar [data-sec]").forEach(function (b) {
+        b.classList.toggle("on", b.dataset.sec === tab);
+        if (b.dataset.sec === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+    });
     /* صفحة فرعية من «المزيد»: زر رجوع واسم الصفحة في الشريط العلوي */
     const sub = tab === "more" && sec !== "more";
     $("#backBtn").classList.toggle("hidden", !sub);
@@ -538,7 +571,40 @@ function renderSoft() {
     if (ui.section === "exchange" && hasOpening()) { exUpdatePreview(); renderExSide(); return; }
     const active = document.activeElement;
     if (active && $("#main").contains(active) && /INPUT|TEXTAREA|SELECT/.test(active.tagName)) return;
+    /* إعادة الرسم بالأرقام الجديدة مع الإبقاء على كل ما كتبه المستخدم ولم يحفظه بعد */
+    const draft = snapshotFields();
     render();
+    restoreFields(draft);
+}
+function fieldKey(el) {
+    if (el.id) return "#" + el.id;
+    const ds = Object.keys(el.dataset).sort().map(function (k) { return k + "=" + el.dataset[k]; }).join("&");
+    return ds ? el.tagName + "?" + ds : null;
+}
+function fieldChanged(el) {
+    if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
+    if (el.tagName === "SELECT") return Array.prototype.some.call(el.options, function (o) { return o.selected !== o.defaultSelected; });
+    return el.value !== el.defaultValue;
+}
+/* مسودة النموذج الظاهر: الحقول التي غيّرها المستخدم فقط */
+function snapshotFields() {
+    const out = [];
+    $$("input, select, textarea", $("#main")).forEach(function (el) {
+        const k = fieldKey(el);
+        if (!k || el.type === "file" || el.readOnly || el.disabled || !fieldChanged(el)) return;
+        out.push({ k: k, v: el.value, c: el.checked });
+    });
+    return out;
+}
+function restoreFields(list) {
+    list.forEach(function (f) {
+        const el = $$("input, select, textarea", $("#main")).find(function (x) { return fieldKey(x) === f.k; });
+        if (!el || el.disabled) return;
+        if (el.type === "checkbox" || el.type === "radio") { if (el.checked === f.c) return; el.checked = f.c; }
+        else { if (el.value === f.v) return; el.value = f.v; }
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        if (el.tagName === "SELECT" || el.type === "checkbox") el.dispatchEvent(new Event("change", { bubbles: true }));
+    });
 }
 function renderTop() {
     $("#dayBadge span").textContent = "اليوم المحاسبي " + fmtDay(openDay()) + " · " + (me.name || me.username);
@@ -712,6 +778,7 @@ function renderSetup(main) {
                 const q = o.qty === "" ? E.ZERO : E.parse(o.qty);
                 if (q === null) { $("#setupErr").textContent = "رصيد غير صالح لـ " + c.name; return; }
                 if (q.lt(0)) { $("#setupErr").textContent = "لا يجوز إدخال رصيد سالب (" + c.name + ")"; return; }
+                if (q.decimalPlaces() > c.decimals) { $("#setupErr").textContent = "عدد المنازل العشرية لرصيد " + c.name + " أكبر من المسموح (" + c.decimals + ")."; return; }
                 let unit = E.ONE;
                 if (c.code !== "USD") {
                     const ph = ($('[data-o="rate"][data-cur="' + c.code + '"]', main) || {}).placeholder;
@@ -1241,6 +1308,8 @@ async function exSave() {
         const nextState = await commit(changes, {
             check: function (next, st, s, prev) {
                 if (!editing && prev.has(rec.id)) return "حُفظت هذه العملية مسبقاً.";
+                if (editing && prev.get(rec.id) && (prev.get(rec.id).updatedAt || "") !== (f.baseUpdatedAt || "")) return "عُدّلت هذه العملية من جهاز أو تبويب آخر بعد أن فتحتها للتعديل. ألغِ التعديل وافتحها من جديد.";
+                if (editing && prev.get(rec.id) && prev.get(rec.id).deleted) return "حُذفت هذه العملية من جهاز أو تبويب آخر.";
                 if (!editing && isClosedIn(prev, rec.day)) return "أُقفل هذا اليوم للتو من جهاز أو تبويب آخر. أعد المحاولة.";
                 return null;
             }
@@ -1346,6 +1415,7 @@ function renderCashbox(main) {
         if (tab === "replace") {
             const tg = E.parse($("#cbTarget").value);
             if (!tg || tg.lt(0)) { err.textContent = "أدخل رصيداً جديداً صحيحاً (صفر أو أكثر)."; return; }
+            if (!E.roundAmount(S, code, tg).eq(tg)) { err.textContent = "عدد المنازل العشرية أكبر من المسموح لـ " + curName(code) + " (" + E.decimalsOf(S, code) + ")."; return; }
             rec.target = tg.toFixed();
             rec.prevBalance = c.qty.toFixed();
         }
@@ -1461,7 +1531,7 @@ function startEdit(id) {
     if (isClosed(r.day)) { toast("يوم هذه العملية مقفل. أعد فتح اليوم أولاً.", "bad"); return; }
     ui.ex = {
         id: r.id, editId: r.id, inCur: r.inCur, outCur: r.outCur, inAmt: r.inAmt, rate: r.rate, outAmt: r.outAmt, basis: "rate",
-        costMethod: r.costMethod || "avg", manualRate: r.manualRate || "", note: r.note || "", saving: false
+        costMethod: r.costMethod || "avg", manualRate: r.manualRate || "", note: r.note || "", saving: false, baseUpdatedAt: r.updatedAt || ""
     };
     go("exchange");
 }
@@ -1628,7 +1698,13 @@ function renderClose(main) {
             const c = clone(closeOf(d));
             const before = clone(c);
             Object.assign(c, { status: "reopened", reopenedAt: nowISO(), reopenedBy: me.username, reopenReason: reason });
-            try { await commit([c, audit("reopen", c, before, reason)], { validate: false }); toast("أُعيد فتح " + fmtDay(d), "ok"); render(); }
+            try {
+                await commit([c, audit("reopen", c, before, reason)], {
+                    validate: false,
+                    check: function (next, st, s2, prev) { const p = prev.get("close-" + d); return !p || p.status !== "closed" || (p.updatedAt || "") !== (before.updatedAt || "") ? "تغيّر إقفال هذا اليوم من جهاز أو تبويب آخر. أعد فتح الصفحة." : null; }
+                });
+                toast("أُعيد فتح " + fmtDay(d), "ok"); render();
+            }
             catch (er) { toast(failMsg(er), "bad"); }
         }
     };
@@ -2066,7 +2142,8 @@ function renderProfitCount(main) {
         const err = $("#pcErr"); err.textContent = "";
         if (!c.lines.length) { err.textContent = "أدخل الرصيد الافتتاحي أو النهائي لعملة واحدة على الأقل."; return; }
         for (const l of rec.lines) {
-            for (const k of ["open", "close"]) { const x = (l[k] || "").trim(); if (x && (E.parse(x) === null || E.parse(x).lt(0))) { err.textContent = "رصيد غير صالح لـ " + curName(l.cur) + "."; return; } }
+            for (const k of ["open", "close"]) { const x = (l[k] || "").trim(); if (x && (E.parse(x) === null || E.parse(x).lt(0))) { err.textContent = "رصيد غير صالح لـ " + curName(l.cur) + "."; return; }
+                if (x && E.parse(x).decimalPlaces() > E.decimalsOf(S, l.cur)) { err.textContent = "عدد المنازل العشرية لـ " + curName(l.cur) + " أكبر من المسموح (" + E.decimalsOf(S, l.cur) + ")."; return; } }
             if ((l.open || l.close) && l.cur !== S.base && !pcUnitUSD(l.cur, l.rate)) { err.textContent = "أدخل سعر صرف صحيحاً لـ " + curName(l.cur) + "."; return; }
         }
         if (b.dataset.act === "pc-print") { printReport(pcReport(Object.assign({}, rec, { no: "" }))); return; }
@@ -2311,9 +2388,25 @@ function renderReports(main) {
 /* =========================================================
    الإعدادات
    ========================================================= */
+/* هل للعملة أي مرجع محفوظ (حتى في السجلات المحذوفة منطقياً)؟ */
+function curReferenced(code) {
+    let found = false;
+    records.forEach(function (r) {
+        if (found || !r) return;
+        if (r.type === "opening" && r.balances && Object.prototype.hasOwnProperty.call(r.balances, code)) found = true;
+        else if (r.type === "rate" && String(r.pair || "").split("/").indexOf(code) >= 0) found = true;
+        else if (r.inCur === code || r.outCur === code || r.cur === code) found = true;
+        else if (Array.isArray(r.lines) && r.lines.some(function (l) { return l && l.cur === code; })) found = true;
+        else if (r.type === "close" && r.snapshot && r.snapshot.balances && Object.prototype.hasOwnProperty.call(r.snapshot.balances, code)) found = true;
+    });
+    return found;
+}
 const TIMEZONES = ["Asia/Damascus", "Europe/Istanbul", "Asia/Beirut", "Asia/Amman", "Asia/Baghdad", "Asia/Riyadh", "Asia/Dubai", "Europe/Berlin", "UTC"];
 function renderSettings(main) {
     const set = clone(settingsRec());
+    /* نسخة الإعدادات عند فتح الصفحة: يُحفظ الفرق عنها فقط، وتبقى كما هي عند التحديث من تبويب/جهاز آخر
+       حتى يُكشف تعارض الحقل نفسه بدل استبداله بصمت */
+    const base = ui.settingsBase || (ui.settingsBase = clone(set));
     const opsExist = ledgerOps().length > 0;
     const isMgr = can("settings");
     const opening = records.get("opening");
@@ -2326,16 +2419,16 @@ function renderSettings(main) {
             '<div class="table-wrap"><table><thead><tr><th>مفعّلة</th><th>الاسم</th><th>الرمز</th><th>العلامة</th><th>المنازل العشرية</th><th>القوة في التسعير</th></tr></thead><tbody>' +
             set.currencies.map(function (c, i) {
                 const fixed = c.code === "USD" || c.code === "SYP";
-                const used = opsExist && (ST.curs[c.code] && (!ST.curs[c.code].qty.isZero() || ST.moves.some(function (m) { return m.cur === c.code; })));
-                return '<tr><td><input type="checkbox" data-sc="enabled" data-i="' + i + '"' + (c.enabled ? " checked" : "") + (fixed ? " disabled" : "") + ' style="width:22px;min-height:22px"></td>' +
-                    '<td><input data-sc="name" data-i="' + i + '" value="' + esc(c.name) + '"></td>' +
-                    '<td><input data-sc="code" data-i="' + i + '" value="' + esc(c.code) + '"' + (fixed || opsExist ? " readonly" : "") + ' style="width:90px"></td>' +
-                    '<td><input data-sc="symbol" data-i="' + i + '" value="' + esc(c.symbol) + '" style="width:80px"></td>' +
-                    '<td><input data-sc="decimals" data-i="' + i + '" value="' + c.decimals + '" class="num-in" style="width:70px"></td>' +
-                    '<td><input data-sc="strength" data-i="' + i + '" value="' + c.strength + '" class="num-in" style="width:70px"' + (opsExist ? " readonly" : "") + "></td></tr>" +
-                    (used && !c.enabled ? "" : "");
+                /* عملة لها أي مرجع محفوظ (رصيد افتتاحي، سعر، عملية، جرد…) لا يتغير رمزها ولا اتجاه تسعيرها */
+                const locked = fixed || curReferenced(c.code);
+                return '<tr><td><input type="checkbox" data-sc="enabled" data-i="' + i + '"' + (c.enabled ? " checked" : "") + (fixed ? " disabled" : "") + ' style="width:22px;min-height:22px" aria-label="تفعيل ' + esc(c.name) + '"></td>' +
+                    '<td><input data-sc="name" data-i="' + i + '" value="' + esc(c.name) + '" aria-label="اسم العملة"></td>' +
+                    '<td><input data-sc="code" data-i="' + i + '" value="' + esc(c.code) + '"' + (locked ? ' readonly title="للعملة بيانات محفوظة؛ لا يمكن تغيير رمزها"' : "") + ' style="width:90px" aria-label="رمز ' + esc(c.name) + '"></td>' +
+                    '<td><input data-sc="symbol" data-i="' + i + '" value="' + esc(c.symbol) + '" style="width:80px" aria-label="علامة ' + esc(c.name) + '"></td>' +
+                    '<td><input data-sc="decimals" data-i="' + i + '" value="' + c.decimals + '" class="num-in" style="width:70px" aria-label="المنازل العشرية لـ ' + esc(c.name) + '"></td>' +
+                    '<td><input data-sc="strength" data-i="' + i + '" value="' + c.strength + '" class="num-in" style="width:70px"' + (locked || opsExist ? " readonly" : "") + ' aria-label="القوة في التسعير لـ ' + esc(c.name) + '"></td></tr>';
             }).join("") + "</tbody></table></div>" +
-            '<p class="muted small">تعطيل عملة (مثل اليورو) يخفيها من الواجهة والأزواج؛ لا يمكن تعطيل عملة لها رصيد.</p></div>' : "") +
+            '<p class="muted small">تعطيل عملة (مثل اليورو) يخفيها من الواجهة والأزواج؛ لا يمكن تعطيل عملة لها رصيد. رمز العملة يُقفل بعد حفظ أي بيانات لها (ومنها الرصيد الافتتاحي) حتى لا يختفي رصيدها.</p></div>' : "") +
 
         /* الحساب والأسعار المرجعية */
         (isMgr ? '<div class="card"><h3>إعدادات الحساب والتقييم</h3><div class="grid g3">' +
@@ -2435,6 +2528,11 @@ function renderSettings(main) {
         if (act === "add-user") editUser(null);
         if (act === "save-settings") {
             const codes = {};
+            for (let i = 0; i < set.currencies.length; i++) {
+                const was = base.currencies[i];
+                if (was && was.code !== set.currencies[i].code && curReferenced(was.code)) { toast("لا يمكن تغيير رمز " + esc(was.code) + ": للعملة بيانات محفوظة (رصيد أو عمليات).", "bad"); return; }
+                if (was && was.strength !== set.currencies[i].strength && curReferenced(was.code) && ledgerOps().length) { toast("لا يمكن تغيير اتجاه تسعير " + esc(was.code) + " بعد بدء العمليات.", "bad"); return; }
+            }
             for (const c of set.currencies) {
                 if (!/^[A-Z]{2,5}$/.test(c.code) || codes[c.code]) { toast("رمز عملة غير صالح أو مكرر: " + esc(c.code), "bad"); return; }
                 codes[c.code] = 1;
@@ -2455,15 +2553,41 @@ function renderSettings(main) {
             }
             const old = settingsRec();
             if (opsExist && old.valuation !== set.valuation && !(await confirmBox("تغيير سياسة الاعتراف بالأرباح", "سيعاد احتساب أرباح كل العمليات السابقة وفق السياسة الجديدة، وستحتاج الأيام المقفلة إلى إعادة اعتماد. متابعة؟", "متابعة"))) return;
-            try { await commit([set, audit("edit", set, old, "تعديل الإعدادات")], { validate: false }); toast("تم حفظ الإعدادات", "ok"); render(); }
-            catch (er) { toast(failMsg(er), "bad"); }
+            try {
+                await commit(function (latestMap) {
+                    const latest = latestMap.get("settings") && !latestMap.get("settings").deleted ? clone(latestMap.get("settings")) : clone(defaultSettings());
+                    const merged = mergeSettings(latest, base, set);
+                    return [merged, audit("edit", merged, latest, "تعديل الإعدادات")];
+                }, { validate: false });
+                ui.settingsBase = null; toast("تم حفظ الإعدادات", "ok"); render();
+            } catch (er) { toast(failMsg(er), "bad"); }
         }
     };
 }
-async function saveUsers(list, reason) {
-    const set = clone(settingsRec());
-    set.users = list;
-    await commit([set], { validate: false });
+/* دمج تعديل الإعدادات على أحدث نسخة: يُطبَّق ما غيّره المستخدم فقط.
+   إن غيّر تبويب/جهاز آخر الحقل نفسه بعد فتح الصفحة ← تعارض (لا يُستبدل شيء بصمت). */
+const SETTINGS_META_KEYS = { id: 1, type: 1, updatedAt: 1, updatedBy: 1, createdAt: 1, createdBy: 1, device: 1, users: 1 };
+function mergeSettings(latest, base, edited) {
+    const same = function (a, b) { return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b); };
+    const conflicts = [];
+    Object.keys(Object.assign({}, base, edited)).forEach(function (k) {
+        if (SETTINGS_META_KEYS[k] || same(edited[k], base[k])) return;
+        if (!same(latest[k], base[k]) && !same(latest[k], edited[k])) { conflicts.push(k); return; }
+        latest[k] = clone(edited[k] === undefined ? null : edited[k]);
+    });
+    if (conflicts.length) throw new UserError("عُدّلت الإعدادات نفسها من جهاز أو تبويب آخر بعد فتح هذه الصفحة. أعد فتح الإعدادات ثم أدخل تعديلك من جديد.");
+    return latest;
+}
+/* تعديل المستخدمين يُحسب داخل القفل على أحدث قائمة (mutate تعدّل القائمة وتعيد رسالة خطأ أو لا شيء) */
+async function saveUsers(mutate) {
+    await commit(function (latestMap) {
+        const src = latestMap.get("settings");
+        const set = clone(src && !src.deleted ? src : defaultSettings());
+        set.users = set.users || [];
+        const msg = mutate(set.users);
+        if (msg) throw new UserError(msg);
+        return [set];
+    }, { validate: false });
 }
 function changePassword(id) {
     const u = users().find(function (x) { return x.id === id; });
@@ -2485,11 +2609,12 @@ function changePassword(id) {
         }
     }).then(async function (pw) {
         if (!pw) return;
-        const list = clone(users());
-        const t = list.find(function (x) { return x.id === id; });
-        t.hash = passHash(id, pw); t.mustChange = false;
         try {
-            await saveUsers(list, "تغيير كلمة المرور");
+            await saveUsers(function (list) {
+                const t = list.find(function (x) { return x.id === id; });
+                if (!t) return "المستخدم غير موجود (ربما حُذف من جهاز آخر).";
+                t.hash = passHash(id, pw); t.mustChange = false;
+            });
             if (self) { me = users().find(function (x) { return x.id === id; }); lsSet("sx_session", JSON.stringify({ id: me.id, hash: me.hash, at: nowISO() })); }
             toast("تم تغيير كلمة المرور. تُطبَّق على كل الأجهزة بعد المزامنة.", "ok");
             render();
@@ -2515,10 +2640,16 @@ function editUser(id) {
         }
     }).then(async function (v) {
         if (!v) return;
-        const list = clone(users());
-        if (u) { const t = list.find(function (x) { return x.id === u.id; }); t.username = v.username; t.name = v.name; if (!(me && u.id === me.id)) t.role = v.role; }
-        else { const nid = uid("u"); list.push({ id: nid, username: v.username, name: v.name, role: v.role, hash: passHash(nid, v.pass), mustChange: false }); }
-        try { await saveUsers(list); if (me) me = users().find(function (x) { return x.id === me.id; }) || me; toast("تم الحفظ", "ok"); render(); } catch (e) { toast(failMsg(e), "bad"); }
+        try {
+            await saveUsers(function (list) {
+                if (list.some(function (x) { return x.username.toLowerCase() === v.username.toLowerCase() && (!u || x.id !== u.id); })) return "اسم المستخدم موجود.";
+                if (u) {
+                    const t = list.find(function (x) { return x.id === u.id; });
+                    if (!t) return "المستخدم غير موجود (ربما حُذف من جهاز آخر).";
+                    t.username = v.username; t.name = v.name; if (!(me && u.id === me.id)) t.role = v.role;
+                } else { const nid = uid("u"); list.push({ id: nid, username: v.username, name: v.name, role: v.role, hash: passHash(nid, v.pass), mustChange: false }); }
+            });
+            if (me) me = users().find(function (x) { return x.id === me.id; }) || me; toast("تم الحفظ", "ok"); render(); } catch (e) { toast(failMsg(e), "bad"); }
     });
 }
 async function deleteUser(id) {
@@ -2526,7 +2657,15 @@ async function deleteUser(id) {
     if (!u || (me && me.id === id)) return;
     if (u.role === "manager" && users().filter(function (x) { return x.role === "manager"; }).length < 2) { toast("يجب أن يبقى مدير واحد على الأقل", "bad"); return; }
     if (!(await confirmBox("حذف المستخدم", "حذف " + esc(u.username) + "؟ عملياته السابقة تبقى كما هي.", "حذف", true))) return;
-    try { await saveUsers(users().filter(function (x) { return x.id !== id; })); toast("تم الحذف", "ok"); render(); } catch (e) { toast(failMsg(e), "bad"); }
+    try {
+        await saveUsers(function (list) {
+            const i = list.findIndex(function (x) { return x.id === id; });
+            if (i < 0) return null;
+            if (list[i].role === "manager" && list.filter(function (x) { return x.role === "manager"; }).length < 2) return "يجب أن يبقى مدير واحد على الأقل";
+            list.splice(i, 1);
+        });
+        toast("تم الحذف", "ok"); render();
+    } catch (e) { toast(failMsg(e), "bad"); }
 }
 async function wipeAll() {
     const v = await promptBox("حذف كل البيانات", '<p class="neg">لا يمكن التراجع. اكتب كلمة <b>حذف</b> للتأكيد.</p>', "التأكيد", { danger: true, okText: "حذف نهائي" });
@@ -2718,18 +2857,21 @@ function fbLoadBackend() {
     return fb.loading;
 }
 async function saveSyncMeta() { await DB.write([], [syncMeta]); }
+/* مراقبة حساب Google مرة واحدة؛ تشغيل الاستماع والرفع منفصل ويُعاد عند كل تفعيل (B07) */
+function fbOnUser(user) {
+    fb.user = user;
+    if (!syncMeta.enabled) { fbStopListen(); fb.status = "off"; renderSyncUI(); return; }
+    if (user) { fb.status = "online"; fb.error = ""; fbListen(); fbPushNow(); }
+    else { fb.status = "signedout"; fbStopListen(); }
+    renderSyncUI();
+}
 async function fbStart() {
-    if (!syncMeta.enabled) { fb.status = "off"; renderSyncUI(); return; }
+    if (!syncMeta.enabled) { fbStopListen(); fb.status = "off"; renderSyncUI(); return; }
     fb.status = "connecting"; renderSyncUI();
     try {
         const b = await fbLoadBackend();
-        if (fb.offUser) return;
-        fb.offUser = b.onUser(function (user) {
-            fb.user = user;
-            if (user) { fb.status = "online"; fb.error = ""; fbListen(); fbPushNow(); }
-            else { fb.status = "signedout"; fbStopListen(); }
-            renderSyncUI();
-        });
+        if (fb.offUser) { fbOnUser(fb.user); return; }
+        fb.offUser = b.onUser(fbOnUser);
     } catch (e) {
         fb.loading = null;
         fb.status = "error"; fb.error = "تعذر تحميل Firebase — تحقق من الاتصال بالإنترنت.";
@@ -2740,11 +2882,13 @@ async function fbStart() {
 function fbStopListen() { if (fb.unsub) { try { fb.unsub(); } catch (e) { /* */ } fb.unsub = null; } }
 function fbListen() {
     fbStopListen();
+    if (!syncMeta.enabled || !fb.backend) return;
     fb.unsub = fb.backend.listen(fbWs(), syncMeta.lastPull || 0, fbApplyRemote, function (err) {
         fb.status = "error"; fb.error = fbErrText(err); renderSyncUI();
     });
 }
 async function fbApplyRemote(docs) {
+    if (!syncMeta.enabled) return;
     let applied = 0;
     try {
         await withLock(async function () {
@@ -2784,12 +2928,15 @@ function fbSchedulePush() {
     fb.pushTimer = setTimeout(fbPushNow, 1200);
     renderSyncUI();
 }
+/* النتيجة: {ok:true} عند اكتمال الرفع (أو لا شيء للرفع)، وإلا {ok:false, error} وتبقى السجلات بانتظار الرفع (B08) */
 async function fbPushNow() {
-    if (!syncMeta.enabled || !fb.user || !fb.backend) return;
-    if (fb.pushing) { fb.pushAgain = true; return; }
+    if (!syncMeta.enabled) return { ok: false, error: "المزامنة متوقفة على هذا الجهاز." };
+    if (!fb.user || !fb.backend) return { ok: false, error: "سجّل الدخول بحساب Google أولاً." };
+    if (fb.pushing) { fb.pushAgain = true; return { ok: false, busy: true, error: "يجري رفع سابق؛ أعد المحاولة بعد لحظات." }; }
     const ids = Object.keys(syncMeta.dirty || {});
-    if (!ids.length) return;
+    if (!ids.length) return { ok: true, pushed: 0 };
     fb.pushing = true; renderSyncUI();
+    let result;
     try {
         const list = ids.map(function (id) { return records.get(id); }).filter(Boolean).map(function (r) {
             return { id: r.id, json: JSON.stringify(r), updatedAt: r.updatedAt || "", deleted: !!r.deleted };
@@ -2801,11 +2948,13 @@ async function fbPushNow() {
         syncMeta.lastSyncAt = Date.now();
         await saveSyncMeta();
         fb.error = "";
-    } catch (e) { fb.error = fbErrText(e); console.warn("push", e); }
+        result = { ok: true, pushed: list.length };
+    } catch (e) { fb.error = fbErrText(e); console.warn("push", e); result = { ok: false, error: fb.error }; }
     finally {
         fb.pushing = false; renderSyncUI();
         if (fb.pushAgain) { fb.pushAgain = false; fbSchedulePush(); }
     }
+    return result;
 }
 async function syncAction(act) {
     if (act === "enable") {
@@ -2830,11 +2979,16 @@ async function syncAction(act) {
     }
     if (act === "now") {
         if (!fb.user) { toast("سجّل الدخول بحساب Google أولاً", "info"); return; }
-        fbListen(); await fbPushNow(); toast("تمت المزامنة", "ok");
+        fbListen();
+        const res = await fbPushNow();
+        const left = Object.keys(syncMeta.dirty || {}).length;
+        if (res && res.ok && !left) toast("تم رفع كل التغييرات" + (res.pushed ? " (" + res.pushed + " سجل)" : "") + "، والاستماع لتغييرات الأجهزة الأخرى يعمل.", "ok");
+        else toast("لم تكتمل المزامنة: " + esc((res && res.error) || fb.error || "بانتظار الاتصال") + " — بقي " + left + " سجل بانتظار الرفع وسيُعاد المحاولة تلقائياً.", "bad", 8000);
+        renderSyncUI();
     }
     if (act === "disable") {
         if (!(await confirmBox("إيقاف المزامنة على هذا الجهاز", "تبقى البيانات على هذا الجهاز ولا يُحذف شيء من Firebase.", "إيقاف"))) return;
-        fbStopListen(); syncMeta.enabled = false; await saveSyncMeta(); fb.status = "off"; render();
+        syncMeta.enabled = false; fb.status = "off"; fbStopListen(); clearTimeout(fb.pushTimer); await saveSyncMeta(); render();
     }
     if (act === "config") {
         const v = await promptBox("إعدادات Firebase مخصصة", '<p class="small muted">الصق كائن firebaseConfig لمشروعك (JSON). اتركه فارغاً للعودة إلى المشروع الافتراضي. يلزم إعادة تحميل الصفحة.</p>', "firebaseConfig", { value: syncMeta.config || "", required: false });
@@ -2843,20 +2997,38 @@ async function syncAction(act) {
         syncMeta.config = v; await saveSyncMeta(); location.reload();
     }
 }
+/* حالة المزامنة بنص ورمز (لا اللون وحده): محلي فقط، بانتظار الرفع، متزامن، جارٍ الاتصال، فشل */
+function syncStateInfo() {
+    const pending = Object.keys(syncMeta.dirty || {}).length;
+    if (!syncMeta.enabled) return { cls: "", icon: "device-mobile", short: "محلي", text: "دون مزامنة — البيانات على هذا الجهاز فقط", pending: pending };
+    if (fb.status === "online" && !fb.error) return pending ? { cls: "warn", icon: "cloud-upload", short: "معلّق " + pending, text: "بانتظار رفع " + pending + " سجل", pending: pending }
+        : { cls: "ok", icon: "cloud-check", short: "متزامن", text: "متزامن مع الأجهزة الأخرى", pending: 0 };
+    if (fb.status === "signedout") return { cls: "warn", icon: "login-2", short: "سجّل الدخول", text: "المزامنة مفعّلة: سجّل الدخول بحساب Google", pending: pending };
+    if (fb.status === "connecting") return { cls: "info", icon: "loader-2", short: "اتصال…", text: "جارٍ الاتصال بخادم المزامنة", pending: pending };
+    return { cls: "bad", icon: "cloud-off", short: navigator.onLine === false ? "دون اتصال" : "فشل", text: navigator.onLine === false ? "دون اتصال — يُحفظ محلياً ويُرفع لاحقاً" : "خطأ في المزامنة", pending: pending };
+}
 function renderSyncBadge() {
     const el = $("#syncBadge");
     if (!el) return;
-    const pending = Object.keys(syncMeta.dirty || {}).length;
-    let cls2 = "badge", txt = "دون مزامنة (هذا الجهاز فقط)";
-    if (syncMeta.enabled) {
-        if (fb.status === "online" && !fb.error) { cls2 = pending ? "badge warn" : "badge ok"; txt = pending ? "بانتظار الرفع (" + pending + ")" : "متزامن ✓"; }
-        else if (fb.status === "signedout") { cls2 = "badge warn"; txt = "المزامنة: سجّل دخول Google"; }
-        else if (fb.status === "connecting") { cls2 = "badge info"; txt = "جارٍ الاتصال…"; }
-        else { cls2 = "badge bad"; txt = navigator.onLine === false ? "دون اتصال — يُحفظ محلياً" : "خطأ في المزامنة"; }
-    }
-    el.className = "sync-pill " + cls2.replace("badge", "").trim();
-    $("span", el).textContent = txt;
-    el.title = fb.error || "";
+    const st = syncStateInfo();
+    el.className = "sync-pill " + st.cls;
+    const ic = $("i", el); if (ic) ic.className = "ti ti-" + st.icon;
+    $("span", el).textContent = st.text;
+    const sh = $(".sync-short", el); if (sh) sh.textContent = st.short;
+    el.setAttribute("aria-label", "حالة المزامنة: " + st.text + (fb.error ? " — " + fb.error : "") + ". اضغط للتفاصيل");
+    el.title = st.text;
+}
+function showSyncInfo() {
+    const st = syncStateInfo();
+    modal('<h3><i class="ti ti-' + st.icon + '"></i> حالة المزامنة</h3><div class="kv">' +
+        "<div>الحالة</div><div>" + esc(st.text) + "</div>" +
+        "<div>بانتظار الرفع</div><div>" + st.pending + " سجل</div>" +
+        "<div>آخر مزامنة ناجحة</div><div>" + (syncMeta.lastSyncAt ? esc(fmtDateTime(new Date(syncMeta.lastSyncAt).toISOString())) : "—") + "</div>" +
+        (fb.user ? '<div>حساب Google</div><div class="ltr">' + esc(fb.user.email || fb.user.uid) + "</div>" : "") + "</div>" +
+        (fb.error ? '<div class="alert bad" style="margin-top:10px">' + esc(fb.error) + "</div>" : "") +
+        (!syncMeta.enabled ? '<p class="muted small" style="margin-top:10px">البيانات محفوظة على هذا الجهاز فقط. لاستخدامها من جوال آخر فعّل المزامنة من الإعدادات، ونزّل نسخة احتياطية بانتظام.</p>' : "") +
+        '<div class="actions">' + (can("settings") || syncMeta.enabled ? '<button class="btn primary" data-modal="settings">إعدادات المزامنة</button>' : "") + '<button class="btn" data-modal="cancel">إغلاق</button></div>')
+        .then(function (v) { if (v === "settings") { go("settings"); setTimeout(function () { const c = $("#syncCard"); if (c) c.scrollIntoView({ block: "start" }); }, 60); } });
 }
 function renderSyncPanel() {
     const box = $("#syncPanel");
@@ -2938,6 +3110,7 @@ async function init() {
         else $("#loginError").textContent = "اسم المستخدم أو كلمة المرور غير صحيحة.";
     });
     $("#themeBtn").addEventListener("click", toggleTheme);
+    $("#syncBadge").addEventListener("click", showSyncInfo);
     $("#backBtn").addEventListener("click", function () { go("more"); });
     $$("#tabbar [data-sec]").forEach(function (b) { b.addEventListener("click", function () { go(b.dataset.sec); }); });
 

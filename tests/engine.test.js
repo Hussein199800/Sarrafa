@@ -160,6 +160,24 @@ check("تقريب الليرة لعدد صحيح", E.roundAmount(S, "SYP", "1395
     check("محاولة صرف مبلغ أكبر من الرصيد تُكتشف", E.newNegatives(before, after).length === 1);
 }
 
+/* --- B03: لا يُسمح بتفاقم عجز موجود، ويُسمح بتقليله --- */
+{
+    const o = opening({ SYP: { qty: "1000000", unitCost: new D(1).div(111).toFixed() }, USD: { qty: "0", unitCost: "1" } });
+    const a = ex("USD", "SYP", 8108.11, 900000), b = ex("USD", "SYP", 8108.11, 900000);
+    const st0 = E.replay([o, a], S), st1 = E.replay([o, a, b], S);
+    check("عمليتان من جهازين تنتجان عجز -800,000", st1.curs.SYP.qty.eq(-800000) && E.newNegatives(st0, st1).length === 1);
+    const worse = E.replay([o, a, Object.assign({}, b, { outAmt: "950000" })], S);
+    check("رفض تفاقم العجز من -800,000 إلى -850,000", E.newNegatives(st1, worse).length === 1);
+    const better = E.replay([o, a, Object.assign({}, b, { outAmt: "850000" })], S);
+    check("السماح بتقليل العجز إلى -750,000", E.newNegatives(st1, better).length === 0);
+    const fixed = E.replay([o, a, Object.assign({}, b, { outAmt: "100000" })], S);
+    check("السماح بإصلاح العجز إلى صفر أو أكثر", E.newNegatives(better, fixed).length === 0 && fixed.negatives.length === 0);
+    const deleted = E.replay([o, a, Object.assign({}, b, { deleted: true })], S);
+    check("حذف العملية المسببة للعجز مسموح", E.newNegatives(st1, deleted).length === 0);
+    const olderEdit = E.replay([o, Object.assign({}, a, { outAmt: "950000" }), b], S);
+    check("رفض تعديل عملية أقدم يزيد العجز اللاحق", E.newNegatives(st1, olderEdit).length === 1);
+}
+
 /* --- تعديل عملية قديمة يعيد احتساب ما بعدها --- */
 {
     const S2 = settings({ valuation: "cost" });

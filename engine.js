@@ -421,11 +421,27 @@
         return false;
     }
 
-    /* سالب جديد ظهر بسبب تغيير مقترح؟ (يُرفض الحفظ) */
+    /* هل يُنشئ التغيير المقترح عجزاً (رصيداً سالباً) أو يزيد عجزاً موجوداً؟ (يُرفض الحفظ)
+       لكل عملة: أسوأ رصيد في أي لحظة من الدفتر. يُرفض إن صار أسوأ، أو ظهر سالب في
+       موضع جديد دون أن يتحسن أسوأ رصيد. التغييرات التي تقلل العجز مسموحة. */
+    function worstByCur(state) {
+        const w = {};
+        state.negatives.forEach(function (n) { if (!w[n.cur] || n.qty.lt(w[n.cur].qty)) w[n.cur] = n; });
+        return w;
+    }
     function newNegatives(before, after) {
-        const seen = {};
+        const seen = {}, out = [];
         before.negatives.forEach(function (n) { seen[n.id + "|" + n.cur] = true; });
-        return after.negatives.filter(function (n) { return !seen[n.id + "|" + n.cur]; });
+        const wb = worstByCur(before), wa = worstByCur(after);
+        Object.keys(wa).forEach(function (cur) {
+            const a = wa[cur], b = wb[cur];
+            const worse = !b || a.qty.lt(b.qty);
+            const improved = b && a.qty.gt(b.qty);
+            const fresh = after.negatives.filter(function (n) { return n.cur === cur && !seen[n.id + "|" + n.cur]; });
+            if (worse) out.push(a);
+            else if (fresh.length && !improved) out.push(fresh[0]);
+        });
+        return out;
     }
 
     /* الأرباح غير المحققة: فرق القيمة بالسعر المرجعي الحالي عن القيمة الدفترية */

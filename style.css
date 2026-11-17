@@ -277,23 +277,25 @@ button, a, input, select { touch-action: manipulation; -webkit-tap-highlight-col
 .top-text b { font-size: var(--fs-lg); font-weight: 700; color: var(--heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .top-text > span { font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .top-btn {
-    width: 42px; height: 42px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-2);
+    width: 44px; height: 44px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-2);
     color: var(--text-2); font-size: var(--fs-xl); display: grid; place-items: center; flex-shrink: 0;
 }
 .top-btn:hover { color: var(--accent-strong); border-color: var(--emerald-300); }
 .theme-when-dark, [data-theme="dark"] .theme-when-light { display: none; }
 [data-theme="dark"] .theme-when-dark { display: inline; }
 
-/* حالة المزامنة: نقطة ملونة ونص قصير */
+/* حالة المزامنة: زر برمز ونص (لا اللون وحده)، والضغط يعرض التفاصيل */
 .sync-pill {
-    display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px; flex-shrink: 0;
+    display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; border-radius: 999px; flex-shrink: 0;
     background: var(--surface-2); border: 1px solid var(--line); color: var(--text-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap;
 }
-.sync-pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
-.sync-pill.ok .dot { background: var(--success); box-shadow: 0 0 0 4px var(--success-bg); }
-.sync-pill.warn .dot { background: var(--warning); box-shadow: 0 0 0 4px var(--warning-bg); }
-.sync-pill.bad .dot { background: var(--danger); box-shadow: 0 0 0 4px var(--danger-bg); }
-.sync-pill.info .dot { background: var(--plum-300); }
+.sync-pill .ti { font-size: 18px; }
+.sync-pill .sync-short { display: none; font-weight: 700; }
+.sync-pill.ok { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, var(--line)); }
+.sync-pill.warn { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 35%, var(--line)); }
+.sync-pill.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+.sync-pill.info { color: var(--info); }
+.sync-pill:focus-visible { outline: none; box-shadow: var(--ring); }
 
 .app-main { min-width: 0; padding: 26px 32px calc(110px + env(safe-area-inset-bottom, 0px)); }
 .main-content { max-width: 1320px; margin: 0 auto; outline: none; animation: fadeUp 0.25s var(--ease); }
@@ -530,7 +532,7 @@ input.invalid { border-color: var(--danger) !important; box-shadow: 0 0 0 3px va
 
 /* ================= الجداول ================= */
 
-.table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.table-wrap { width: 100%; overflow-x: auto; background-image: linear-gradient(to right, var(--surface), var(--surface)), linear-gradient(to right, color-mix(in srgb, var(--text) 12%, transparent), transparent); background-repeat: no-repeat; background-size: 24px 100%, 14px 100%; background-attachment: local, scroll; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
 table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-md); }
 thead tr { background: var(--surface-2); }
 th {
@@ -647,7 +649,9 @@ details.card > summary { list-style: none; display: flex; align-items: center; g
     .login-shell { padding: 28px 20px 22px; border-radius: var(--r-xl); }
     .g2, .g3, .g4 { grid-template-columns: minmax(0, 1fr); }
     .g4.keep2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .g3.meta3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .g3.meta3 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .g3.meta3 > :first-child { grid-column: 1 / -1; }
+    .meta3 input { padding: 0 8px !important; }
     .card { padding: 18px 16px; }
     .kpi .value { font-size: var(--fs-xl); }
     .ex-cur { grid-template-columns: minmax(0, 1fr); }
@@ -660,7 +664,12 @@ details.card > summary { list-style: none; display: flex; align-items: center; g
     .toasts { top: 10px; }
     .lcards { grid-template-columns: minmax(0, 1fr); }
     .sync-pill span { display: none; }
-    .sync-pill { padding: 8px; }
+    .sync-pill .sync-short { display: inline; }
+    .sync-pill { padding: 0 10px; }
+    .top-text b { font-size: var(--fs-base); }
+    /* مساحة لمس 44px للأزرار الصغيرة على الجوال مع بقاء شكلها */
+    .btn.sm { min-height: 44px; }
+    .lcard, .tabbar button { min-height: 48px; }
     .top-brand .seal { width: 34px; height: 34px; }
     .tabbar { grid-auto-columns: minmax(0, 1fr); }
     .tabbar button { font-size: var(--fs-xs); }
